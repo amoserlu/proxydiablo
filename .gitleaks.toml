@@ -1,0 +1,14 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Generated, vendored, and local agent files"
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)dist/''',
+  '''(^|/)dist-server/''',
+  '''(^|/)dist-electron/''',
+  '''(^|/)\.agents/''',
+  '''(^|/)\.specify/''',
+  '''\.png$'''
+]
