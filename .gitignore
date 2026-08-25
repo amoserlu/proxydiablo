@@ -25,7 +25,11 @@ coverage/
 .vscode/
 
 # Local agent and specification tooling
-.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/proxydiablo/
+!.agents/skills/proxydiablo/**
 .specify/
 AGENTS.md
 

@@ -43,6 +43,23 @@ proxydiablo ui
 
 The app is served at [http://localhost:17871](http://localhost:17871).
 
+## Install the Codex skill
+
+The included skill teaches Codex how to use Proxy Diablo without exposing credentials or unreleased output. Install the application first, then ask Codex:
+
+```text
+$skill-installer install the proxydiablo skill from https://github.com/amoserlu/proxydiablo/tree/main/.agents/skills/proxydiablo
+```
+
+Alternatively, after cloning the repository, install it manually for the current user:
+
+```bash
+mkdir -p ~/.agents/skills
+ln -sfn "$PWD/.agents/skills/proxydiablo" ~/.agents/skills/proxydiablo
+```
+
+Codex detects the skill automatically. If it does not appear in `/skills`, restart Codex. Invoke it explicitly with `$proxydiablo` or let Codex select it when a task requires supervised PostgreSQL or local command execution.
+
 ## Usage
 
 Run a supervised local command:

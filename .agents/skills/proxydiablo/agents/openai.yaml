@@ -1,0 +1,4 @@
+interface:
+  display_name: "Proxy Diablo"
+  short_description: "Supervised local PostgreSQL and command proxy"
+  default_prompt: "Use $proxydiablo to run this request through the supervised local proxy."
