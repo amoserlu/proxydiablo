@@ -60,6 +60,30 @@ ln -sfn "$PWD/.agents/skills/proxydiablo" ~/.agents/skills/proxydiablo
 
 Codex detects the skill automatically. If it does not appear in `/skills`, restart Codex. Invoke it explicitly with `$proxydiablo` or let Codex select it when a task requires supervised PostgreSQL or local command execution.
 
+## Manual environments
+
+Besides pgAdmin profiles, Proxy Diablo reads PostgreSQL environments from a JSON file. The default location is `~/.config/proxydiablo/environments.json`; set `PROXYDIABLO_ENVIRONMENTS` to use another path.
+
+```json
+{
+  "environments": [
+    {
+      "name": "staging",
+      "host": "db.staging.example.com",
+      "port": 5432,
+      "database": "app",
+      "user": "readonly",
+      "passwordEnv": "STAGING_DB_PASSWORD",
+      "sslmode": "require"
+    }
+  ]
+}
+```
+
+`name`, `host` and `user` are required; `port` defaults to 5432 and `database` is the default when a request omits one. Environments appear in `proxydiablo pgsql profiles` and the UI profile list, ahead of pgAdmin profiles, and pgAdmin is optional when at least one environment exists.
+
+Password resolution order: a password typed in the UI for this session, the variable named by `passwordEnv`, the `password` field, then the standard `PGPASSWORD` / `~/.pgpass` lookup. If the server rejects the connection for lack of a password, the tab asks for one in the UI. It is kept in memory only and never written to disk. Prefer `passwordEnv` or the UI prompt over `password`.
+
 ## Usage
 
 Run a supervised local command:

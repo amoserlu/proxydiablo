@@ -198,7 +198,7 @@ async function handleUiRequest(request: http.IncomingMessage, response: http.Ser
   }
 
   const tabMatch = url.pathname.match(
-    /^\/api\/tabs\/([^/]+)(?:\/(active|pgsql|connection|command|classification|run|cancel|revise|release|filter-exemption))?$/,
+    /^\/api\/tabs\/([^/]+)(?:\/(active|pgsql|connection|command|classification|run|cancel|revise|release|filter-exemption|password))?$/,
   );
   if (!tabMatch) throw new HttpError(404, 'not_found');
 
@@ -219,6 +219,8 @@ async function handleUiRequest(request: http.IncomingMessage, response: http.Ser
   else if (action === 'revise' && request.method === 'POST') service.requestRevision(tabId, String(body.explanation ?? ''));
   else if (action === 'release' && request.method === 'POST') {
     service.releaseTab(tabId, body.sensitiveDataConfirmed === true);
+  } else if (action === 'password' && request.method === 'POST') {
+    service.provideEnvironmentPassword(tabId, String(body.password ?? ''));
   } else if (action === 'filter-exemption' && request.method === 'POST') {
     service.toggleTabFilterExemption(tabId, String(body.columnName ?? ''));
   } else throw new HttpError(404, 'not_found');
