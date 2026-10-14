@@ -84,6 +84,23 @@ Besides pgAdmin profiles, Proxy Diablo reads PostgreSQL environments from a JSON
 
 Password resolution order: a password typed in the UI for this session, the variable named by `passwordEnv`, the `password` field, then the standard `PGPASSWORD` / `~/.pgpass` lookup. If the server rejects the connection for lack of a password, the tab asks for one in the UI. It is kept in memory only and never written to disk. Prefer `passwordEnv` or the UI prompt over `password`.
 
+### AWS IAM database authentication
+
+For RDS/Aurora databases that use IAM auth, set `auth` to `rds-iam` and name the AWS CLI profile. No password is stored anywhere: a fresh token is generated for every connection with `aws rds generate-db-auth-token` and SSL defaults to `require`.
+
+```json
+{
+  "name": "cec-prod",
+  "host": "cec-prod.cryqwkvystyi.eu-west-2.rds.amazonaws.com",
+  "database": "cec",
+  "user": "my.name@example.com",
+  "auth": "rds-iam",
+  "awsProfile": "cec_developer"
+}
+```
+
+`region` is derived from RDS hostnames and is required for other hosts (for example a tunnel to `localhost`). Role chains (`role_arn`, `source_profile`, `external_id`) and SSO sessions are handled by the AWS CLI through the profile. When the session has expired the error names the profile to log in with, for example `aws sso login --profile aircury_cec_developer`. Requires AWS CLI v2 (`PROXYDIABLO_AWS_CLI` overrides the executable).
+
 ## Usage
 
 Run a supervised local command:
