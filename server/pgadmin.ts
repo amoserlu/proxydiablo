@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { ProfileSummary } from '../src/shared/types.js';
+import { listEnvironmentProfiles, resolveEnvironment } from './environments.js';
 import { projectDir } from './paths.js';
 
 const execFileAsync = promisify(execFile);
@@ -33,10 +34,19 @@ async function runHelper(args: string[]): Promise<unknown> {
 }
 
 export async function listProfiles(): Promise<ProfileSummary[]> {
-  const data = (await runHelper(['list'])) as { profiles: ProfileSummary[] };
-  return data.profiles;
+  const environments = listEnvironmentProfiles();
+  try {
+    const data = (await runHelper(['list'])) as { profiles: ProfileSummary[] };
+    return [...environments, ...data.profiles];
+  } catch (error) {
+    // pgAdmin is optional once manual environments exist.
+    if (environments.length) return environments;
+    throw error;
+  }
 }
 
 export async function resolveConnection(profile: string, database: string): Promise<ResolvedConnection> {
+  const environment = resolveEnvironment(profile, database);
+  if (environment) return environment;
   return (await runHelper(['resolve', profile, database])) as ResolvedConnection;
 }
