@@ -297,7 +297,7 @@ function PgsqlPane({
               void api.updateConnection(tab.id, event.target.value, tab.database || profile?.maintenanceDb || 'postgres');
             }}
           >
-            <option value="">Select pgAdmin profile</option>
+            <option value="">Select profile or environment</option>
             {tab.profile && !currentProfileExists && <option value={tab.profile}>{tab.profile}</option>}
             {profiles.map((profile) => (
               <option key={profile.id} value={profile.name}>
@@ -316,6 +316,8 @@ function PgsqlPane({
         </label>
         <ClassificationControl tab={tab} />
       </div>
+
+      {tab.passwordRequiredFor && <PasswordPrompt tab={tab} />}
 
       <CommonToolbar tab={tab} actions={actions} runDisabled={connectionMissing}>
         <button onClick={() => void api.updatePgsql(tab.id, formatSqlForEditor(tab.sql))}>
@@ -462,6 +464,35 @@ function GridResizer({ height, onResize, label }: { height: number; onResize(hei
         else if (event.key === 'End') { event.preventDefault(); onResize(520); }
       }}
     ><span /></div>
+  );
+}
+
+function PasswordPrompt({ tab }: { tab: PgsqlTab }) {
+  const [password, setPassword] = useState('');
+  const submit = () => {
+    if (!password) return;
+    void api.providePassword(tab.id, password);
+    setPassword('');
+  };
+  return (
+    <form
+      className="password-prompt"
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit();
+      }}
+    >
+      <label>
+        Password for {tab.passwordRequiredFor} (kept in memory for this session)
+        <input
+          type="password"
+          autoComplete="off"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+        />
+      </label>
+      <button type="submit" disabled={!password}>Use password</button>
+    </form>
   );
 }
 

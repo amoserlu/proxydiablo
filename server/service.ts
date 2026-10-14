@@ -15,6 +15,7 @@ import type {
   ProxyResponse,
   ProxyTab,
 } from '../src/shared/types.js';
+import { looksLikeMissingPassword, setSessionPassword } from './environments.js';
 import { listProfiles, resolveConnection } from './pgadmin.js';
 import { inspectStructure } from './pgsql.js';
 import { runQuery } from './queryRunner.js';
@@ -213,9 +214,24 @@ export class ProxyService {
       const current = this.getTab(tabId, 'pgsql');
       if (current?.status === 'running') this.updateTab(tabId, { status: 'executed', result, error: undefined });
     } catch (error) {
+      if (looksLikeMissingPassword(tab.profile, error)) {
+        this.updateTab(tabId, {
+          status: tab.source === 'codex' ? 'waiting_user' : 'draft',
+          error: `Password required for environment "${tab.profile}".`,
+          passwordRequiredFor: tab.profile,
+        });
+        return;
+      }
       const message = safeError(error);
       this.updateTab(tabId, { status: 'error', error: message });
     }
+  }
+
+  provideEnvironmentPassword(tabId: string, password: string): void {
+    const tab = this.getTab(tabId, 'pgsql');
+    if (!tab?.passwordRequiredFor) throw new Error('This tab is not waiting for a password.');
+    setSessionPassword(tab.passwordRequiredFor, password);
+    this.updateTab(tabId, { passwordRequiredFor: undefined, error: undefined });
   }
 
   storeCommandResult(tabId: string, result: CommandResult): void {

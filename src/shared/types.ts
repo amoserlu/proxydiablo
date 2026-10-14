@@ -72,6 +72,7 @@ export interface PgsqlTab extends BaseProxyTab {
   result?: QueryResult;
   filtered?: FilteredResult;
   filterExemptColumns?: string[];
+  passwordRequiredFor?: string;
 }
 
 export interface CommandResult {
