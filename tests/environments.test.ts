@@ -10,6 +10,7 @@ import {
   regionFromHost,
   resolveEnvironment,
   setSessionPassword,
+  watchEnvironments,
 } from '../server/environments';
 import { resolveConnection } from '../server/pgadmin';
 
@@ -152,5 +153,18 @@ describe('rds-iam environments', () => {
   it('never asks for a password for IAM environments', () => {
     writeFile({ environments: [{ name: 'iam', host, user: 'dev', auth: 'rds-iam' }] });
     expect(looksLikeMissingPassword('iam', new Error('client password must be a string'))).toBe(false);
+  });
+});
+
+describe('watchEnvironments', () => {
+  it('notices edits to the environments file', async () => {
+    writeFile({ environments: [] });
+    let changes = 0;
+    const stop = watchEnvironments(() => (changes += 1), 50);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    writeFile({ environments: [{ name: 'new', host: 'h', user: 'u' }] });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    stop();
+    expect(changes).toBeGreaterThan(0);
   });
 });

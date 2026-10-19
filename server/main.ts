@@ -12,6 +12,7 @@ import type {
   PgsqlSubmitRequest,
 } from '../src/shared/types.js';
 import { openBrowser } from './browser.js';
+import { watchEnvironments } from './environments.js';
 import { bridgePath, clientDirectory, configDirectory } from './paths.js';
 import {
   DoubleConfirmationRequiredError,
@@ -72,9 +73,12 @@ const server = http.createServer(async (request, response) => {
     }
     if (url.pathname === '/pgsql/submit' && request.method === 'POST') {
       requireCliAuthorization(request);
-      const pending = service.submitPgsql(parsePgsqlRequest(await readBody(request)));
+      const submission = service.startPgsqlSubmission(parsePgsqlRequest(await readBody(request)));
+      response.on('close', () => {
+        if (!response.writableFinished) service.abandonPgsql(submission.tabId);
+      });
       if (!service.hasUiClients()) openBrowser(browserUrl);
-      sendJson(response, 200, { ok: true, data: await pending });
+      sendJson(response, 200, { ok: true, data: await submission.response });
       return;
     }
     if (url.pathname === '/command/submit' && request.method === 'POST') {
@@ -124,6 +128,7 @@ server.listen(port, host, () => {
   fs.chmodSync(bridgePath, 0o600);
   console.log(`proxydiablo web listening on ${browserUrl}`);
   void service.refreshProfiles();
+  watchEnvironments(() => void service.refreshProfiles());
 });
 
 server.on('error', (error: NodeJS.ErrnoException) => {

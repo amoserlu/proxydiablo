@@ -134,8 +134,25 @@ export class ProxyService {
   }
 
   submitPgsql(request: PgsqlSubmitRequest): Promise<ProxyResponse> {
+    return this.startPgsqlSubmission(request).response;
+  }
+
+  startPgsqlSubmission(request: PgsqlSubmitRequest): { tabId: string; response: Promise<ProxyResponse> } {
     const tab = this.createPgsqlTab(request);
-    return new Promise((resolve) => this.pgsqlWaiters.set(tab.id, resolve));
+    const response = new Promise<ProxyResponse>((resolve) => this.pgsqlWaiters.set(tab.id, resolve));
+    return { tabId: tab.id, response };
+  }
+
+  /** The submitting CLI went away: nothing can receive this tab's result anymore. */
+  abandonPgsql(tabId: string): void {
+    if (!this.pgsqlWaiters.delete(tabId)) return;
+    const tab = this.getTab(tabId, 'pgsql');
+    if (!tab || ['released', 'cancelled', 'revision_requested'].includes(tab.status)) return;
+    this.updateTab(tabId, {
+      status: 'cancelled',
+      error: 'The requester disconnected, so nothing can receive this result. Ask the agent to submit it again.',
+      passwordRequiredFor: undefined,
+    });
   }
 
   setActiveTab(tabId: string): void {
