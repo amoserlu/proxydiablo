@@ -133,13 +133,29 @@ export function resolveEnvironment(profile: string, database: string): ResolvedC
   };
 }
 
-/** True when a failed connection to an environment without any configured password looks like a missing password. */
-export function looksLikeMissingPassword(profile: string, error: unknown): boolean {
-  if (!isEnvironmentName(profile)) return false;
-  const connection = resolveEnvironment(profile, '');
-  if (connection?.password) return false;
+/**
+ * Decides whether a failed connection should send the human back to the password prompt:
+ * 'missing' when no password was configured, 'rejected' when the one typed in the UI was wrong
+ * (that session password is forgotten so it can be typed again). Configured passwords are left alone.
+ */
+export function passwordPromptReason(profile: string, error: unknown): 'missing' | 'rejected' | undefined {
+  const entry = (() => {
+    try {
+      return loadEnvironments().find((item) => item.name === profile);
+    } catch {
+      return undefined;
+    }
+  })();
+  if (!entry) return undefined;
   const message = error instanceof Error ? error.message : String(error);
-  return /password/i.test(message);
+  const code = (error as { code?: unknown })?.code;
+  if (code !== '28P01' && !/password/i.test(message)) return undefined;
+  if (sessionPasswords.has(entry.name)) {
+    sessionPasswords.delete(entry.name);
+    return 'rejected';
+  }
+  if (entry.password || (entry.passwordEnv && process.env[entry.passwordEnv])) return undefined;
+  return 'missing';
 }
 
 /** Calls onChange whenever the environments file is created, edited or removed (polling survives atomic replaces). */
