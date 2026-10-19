@@ -6,7 +6,7 @@ import {
   clearSessionPasswords,
   listEnvironmentProfiles,
   loadEnvironments,
-  looksLikeMissingPassword,
+  passwordPromptReason,
   regionFromHost,
   resolveEnvironment,
   setSessionPassword,
@@ -81,13 +81,23 @@ describe('manual environments', () => {
     expect(() => setSessionPassword('ghost', 'pw')).toThrow('Unknown environment');
   });
 
-  it('flags only password-looking failures on environments without a password', () => {
+  it('asks for a missing password only on password-looking failures', () => {
     writeFile({ environments: [{ name: 'dev', host: 'h', user: 'u' }, { name: 'pw', host: 'h', user: 'u', password: 'x' }] });
     const sasl = new Error('SASL: SCRAM-SERVER-FIRST-MESSAGE: client password must be a string');
-    expect(looksLikeMissingPassword('dev', sasl)).toBe(true);
-    expect(looksLikeMissingPassword('dev', new Error('connect ECONNREFUSED'))).toBe(false);
-    expect(looksLikeMissingPassword('pw', sasl)).toBe(false);
-    expect(looksLikeMissingPassword('pgadmin-profile', sasl)).toBe(false);
+    expect(passwordPromptReason('dev', sasl)).toBe('missing');
+    expect(passwordPromptReason('dev', new Error('connect ECONNREFUSED'))).toBeUndefined();
+    expect(passwordPromptReason('pw', sasl)).toBeUndefined();
+    expect(passwordPromptReason('pgadmin-profile', sasl)).toBeUndefined();
+  });
+
+  it('forgets a rejected UI password so it can be typed again', async () => {
+    writeFile({ environments: [{ name: 'dev', host: 'h', user: 'u' }] });
+    setSessionPassword('dev', 'typo');
+    const rejected = Object.assign(new Error('password authentication failed for user "u"'), { code: '28P01' });
+    expect(passwordPromptReason('dev', rejected)).toBe('rejected');
+    expect((await resolveEnvironment('dev', 'd'))?.password).toBeUndefined();
+    setSessionPassword('dev', 'right');
+    expect((await resolveEnvironment('dev', 'd'))?.password).toBe('right');
   });
 
   it('resolveConnection serves environments without calling pgAdmin', async () => {
@@ -152,7 +162,7 @@ describe('rds-iam environments', () => {
 
   it('never asks for a password for IAM environments', () => {
     writeFile({ environments: [{ name: 'iam', host, user: 'dev', auth: 'rds-iam' }] });
-    expect(looksLikeMissingPassword('iam', new Error('client password must be a string'))).toBe(false);
+    expect(passwordPromptReason('iam', new Error('client password must be a string'))).toBeUndefined();
   });
 });
 

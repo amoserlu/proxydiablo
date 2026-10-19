@@ -15,7 +15,7 @@ import type {
   ProxyResponse,
   ProxyTab,
 } from '../src/shared/types.js';
-import { looksLikeMissingPassword, setSessionPassword } from './environments.js';
+import { passwordPromptReason, setSessionPassword } from './environments.js';
 import { listProfiles, resolveConnection } from './pgadmin.js';
 import { inspectStructure } from './pgsql.js';
 import { runQuery } from './queryRunner.js';
@@ -231,10 +231,13 @@ export class ProxyService {
       const current = this.getTab(tabId, 'pgsql');
       if (current?.status === 'running') this.updateTab(tabId, { status: 'executed', result, error: undefined });
     } catch (error) {
-      if (looksLikeMissingPassword(tab.profile, error)) {
+      const reason = passwordPromptReason(tab.profile, error);
+      if (reason) {
         this.updateTab(tabId, {
           status: tab.source === 'codex' ? 'waiting_user' : 'draft',
-          error: `Password required for environment "${tab.profile}".`,
+          error: reason === 'rejected'
+            ? `The password for environment "${tab.profile}" was rejected. Enter it again.`
+            : `Password required for environment "${tab.profile}".`,
           passwordRequiredFor: tab.profile,
         });
         return;
