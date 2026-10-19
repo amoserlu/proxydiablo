@@ -141,3 +141,13 @@ export function looksLikeMissingPassword(profile: string, error: unknown): boole
   const message = error instanceof Error ? error.message : String(error);
   return /password/i.test(message);
 }
+
+/** Calls onChange whenever the environments file is created, edited or removed (polling survives atomic replaces). */
+export function watchEnvironments(onChange: () => void, intervalMs = 1000): () => void {
+  const file = environmentsPath();
+  const listener = (current: fs.Stats, previous: fs.Stats) => {
+    if (current.mtimeMs !== previous.mtimeMs || current.size !== previous.size) onChange();
+  };
+  fs.watchFile(file, { interval: intervalMs, persistent: false }, listener);
+  return () => fs.unwatchFile(file, listener);
+}

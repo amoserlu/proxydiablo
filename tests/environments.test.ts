@@ -9,6 +9,7 @@ import {
   looksLikeMissingPassword,
   resolveEnvironment,
   setSessionPassword,
+  watchEnvironments,
 } from '../server/environments';
 import { resolveConnection } from '../server/pgadmin';
 
@@ -91,5 +92,18 @@ describe('manual environments', () => {
   it('resolveConnection serves environments without calling pgAdmin', async () => {
     writeFile({ environments: [{ name: 'dev', host: 'h', user: 'u' }] });
     await expect(resolveConnection('dev', 'd')).resolves.toMatchObject({ name: 'dev', host: 'h', database: 'd' });
+  });
+});
+
+describe('watchEnvironments', () => {
+  it('notices edits to the environments file', async () => {
+    writeFile({ environments: [] });
+    let changes = 0;
+    const stop = watchEnvironments(() => (changes += 1), 50);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    writeFile({ environments: [{ name: 'new', host: 'h', user: 'u' }] });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    stop();
+    expect(changes).toBeGreaterThan(0);
   });
 });
