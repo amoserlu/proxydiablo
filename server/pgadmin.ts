@@ -46,7 +46,7 @@ export async function listProfiles(): Promise<ProfileSummary[]> {
 }
 
 export async function resolveConnection(profile: string, database: string): Promise<ResolvedConnection> {
-  const environment = resolveEnvironment(profile, database);
+  const environment = await resolveEnvironment(profile, database);
   if (environment) return environment;
   return (await runHelper(['resolve', profile, database])) as ResolvedConnection;
 }
