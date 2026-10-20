@@ -12,6 +12,7 @@ import type {
   PgsqlSubmitRequest,
 } from '../src/shared/types.js';
 import { openBrowser } from './browser.js';
+import { watchEnvironments } from './environments.js';
 import { bridgePath, clientDirectory, configDirectory } from './paths.js';
 import {
   DoubleConfirmationRequiredError,
@@ -72,9 +73,12 @@ const server = http.createServer(async (request, response) => {
     }
     if (url.pathname === '/pgsql/submit' && request.method === 'POST') {
       requireCliAuthorization(request);
-      const pending = service.submitPgsql(parsePgsqlRequest(await readBody(request)));
+      const submission = service.startPgsqlSubmission(parsePgsqlRequest(await readBody(request)));
+      response.on('close', () => {
+        if (!response.writableFinished) service.abandonPgsql(submission.tabId);
+      });
       if (!service.hasUiClients()) openBrowser(browserUrl);
-      sendJson(response, 200, { ok: true, data: await pending });
+      sendJson(response, 200, { ok: true, data: await submission.response });
       return;
     }
     if (url.pathname === '/command/submit' && request.method === 'POST') {
@@ -124,6 +128,7 @@ server.listen(port, host, () => {
   fs.chmodSync(bridgePath, 0o600);
   console.log(`proxydiablo web listening on ${browserUrl}`);
   void service.refreshProfiles();
+  watchEnvironments(() => void service.refreshProfiles());
 });
 
 server.on('error', (error: NodeJS.ErrnoException) => {
@@ -198,7 +203,7 @@ async function handleUiRequest(request: http.IncomingMessage, response: http.Ser
   }
 
   const tabMatch = url.pathname.match(
-    /^\/api\/tabs\/([^/]+)(?:\/(active|pgsql|connection|command|classification|run|cancel|revise|release|filter-exemption))?$/,
+    /^\/api\/tabs\/([^/]+)(?:\/(active|pgsql|connection|command|classification|run|cancel|revise|release|filter-exemption|password))?$/,
   );
   if (!tabMatch) throw new HttpError(404, 'not_found');
 
@@ -219,6 +224,8 @@ async function handleUiRequest(request: http.IncomingMessage, response: http.Ser
   else if (action === 'revise' && request.method === 'POST') service.requestRevision(tabId, String(body.explanation ?? ''));
   else if (action === 'release' && request.method === 'POST') {
     service.releaseTab(tabId, body.sensitiveDataConfirmed === true);
+  } else if (action === 'password' && request.method === 'POST') {
+    service.provideEnvironmentPassword(tabId, String(body.password ?? ''));
   } else if (action === 'filter-exemption' && request.method === 'POST') {
     service.toggleTabFilterExemption(tabId, String(body.columnName ?? ''));
   } else throw new HttpError(404, 'not_found');
