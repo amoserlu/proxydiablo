@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { ProfileSummary } from '../src/shared/types.js';
+import type { DatabaseEngine, ProfileSummary } from '../src/shared/types.js';
 import { configDirectory } from './paths.js';
 import type { ResolvedConnection } from './pgadmin.js';
 
@@ -11,8 +11,11 @@ const execFileAsync = promisify(execFile);
 
 export type EnvironmentAuth = 'password' | 'rds-iam';
 
+const DEFAULT_PORTS: Record<DatabaseEngine, number> = { postgresql: 5432, mysql: 3306 };
+
 export interface EnvironmentEntry {
   name: string;
+  engine: DatabaseEngine;
   host: string;
   port?: number;
   database?: string;
@@ -89,8 +92,11 @@ function parseEntry(item: unknown, index: number): EnvironmentEntry {
   }
   const auth = (text('auth', false) ?? 'password') as EnvironmentAuth;
   if (auth !== 'password' && auth !== 'rds-iam') throw new Error(`${where}.auth must be "password" or "rds-iam".`);
+  const engine = (text('engine', false) ?? 'postgresql') as DatabaseEngine;
+  if (engine !== 'postgresql' && engine !== 'mysql') throw new Error(`${where}.engine must be "postgresql" or "mysql".`);
   const entry: EnvironmentEntry = {
     name: text('name', true)!,
+    engine,
     host: text('host', true)!,
     port: port as number | undefined,
     database: text('database', false),
@@ -119,7 +125,17 @@ export function listEnvironmentProfiles(): ProfileSummary[] {
     port: entry.port,
     username: entry.user,
     maintenanceDb: entry.database,
+    engine: entry.engine,
   }));
+}
+
+/** The engine behind a profile name: manual environments say so, pgAdmin profiles are PostgreSQL. */
+export function profileEngine(name: string): DatabaseEngine {
+  try {
+    return loadEnvironments().find((entry) => entry.name === name)?.engine ?? 'postgresql';
+  } catch {
+    return 'postgresql';
+  }
 }
 
 export function setSessionPassword(name: string, password: string): void {
@@ -187,7 +203,7 @@ async function mintIamToken(entry: EnvironmentEntry): Promise<string> {
   const args = [
     'rds', 'generate-db-auth-token',
     '--hostname', entry.host,
-    '--port', String(entry.port ?? 5432),
+    '--port', String(entry.port ?? DEFAULT_PORTS[entry.engine]),
     '--region', region,
     '--username', entry.user,
     ...(entry.awsProfile ? ['--profile', entry.awsProfile] : []),
@@ -233,6 +249,8 @@ export async function resolveEnvironment(profile: string, database: string): Pro
     user: entry.user,
     password,
     sslmode: iam ? entry.sslmode ?? 'require' : entry.sslmode,
+    engine: entry.engine,
+    auth: entry.auth,
   };
 }
 
@@ -252,7 +270,7 @@ export function passwordPromptReason(profile: string, error: unknown): 'missing'
   if (!entry || entry.auth === 'rds-iam') return undefined;
   const message = error instanceof Error ? error.message : String(error);
   const code = (error as { code?: unknown })?.code;
-  if (code !== '28P01' && !/password/i.test(message)) return undefined;
+  if (code !== '28P01' && code !== 'ER_ACCESS_DENIED_ERROR' && !/password/i.test(message)) return undefined;
   if (sessionPasswords.has(entry.name)) {
     sessionPasswords.delete(entry.name);
     return 'rejected';

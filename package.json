@@ -1,7 +1,7 @@
 {
   "name": "proxydiablo",
   "version": "0.1.0",
-  "description": "A localhost-only, human-in-the-loop proxy for PostgreSQL and shell commands.",
+  "description": "A localhost-only, human-in-the-loop proxy for PostgreSQL, MySQL and shell commands.",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -32,6 +32,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit"
   },
   "dependencies": {
+    "mysql2": "^3.24.6",
     "pg": "^8.16.3"
   },
   "devDependencies": {

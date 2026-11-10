@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   DoubleConfirmationRequiredError,
   ProxyService,
@@ -173,5 +176,48 @@ describe('ProxyService abandoned submissions', () => {
     service.cancelTab(tabId);
     service.abandonPgsql(tabId);
     expect(service.snapshot().tabs.find((item) => item.id === tabId)?.error).toBeUndefined();
+  });
+});
+
+describe('ProxyService database engines', () => {
+  let dir: string;
+  const writeEnvironments = (engine?: string) => fs.writeFileSync(
+    process.env.PROXYDIABLO_ENVIRONMENTS!,
+    JSON.stringify({ environments: [{ name: 'shop', host: 'h', user: 'u', ...(engine ? { engine } : {}) }] }),
+  );
+  // Read for PostgreSQL ($a$ quoting), but a DROP between two identifiers for MySQL.
+  const sql = 'select $a$; drop table users; $a$';
+  const request = { profile: 'shop', database: 'app', sql, description: 'Engine test.', classification: 'read' as const };
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proxydiablo-engine-'));
+    process.env.PROXYDIABLO_ENVIRONMENTS = path.join(dir, 'environments.json');
+  });
+
+  afterEach(() => {
+    delete process.env.PROXYDIABLO_ENVIRONMENTS;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('classifies SQL with the engine of the selected environment', async () => {
+    writeEnvironments('mysql');
+    const service = new ProxyService();
+    const tab = service.createPgsqlTab(request);
+    expect(tab).toMatchObject({ engine: 'mysql', detectedClassification: 'ambiguous' });
+    await expect(service.approveTab(tab.id, false)).rejects.toBeInstanceOf(DoubleConfirmationRequiredError);
+
+    service.updateConnection(tab.id, 'pgadmin-profile', 'app');
+    expect(service.snapshot().tabs[0]).toMatchObject({ engine: 'postgresql', detectedClassification: 'read' });
+  });
+
+  it('re-checks the engine when the environment changes before approval', async () => {
+    writeEnvironments();
+    const service = new ProxyService();
+    const tab = service.createPgsqlTab(request);
+    expect(tab).toMatchObject({ engine: 'postgresql', detectedClassification: 'read' });
+
+    writeEnvironments('mysql');
+    await expect(service.approveTab(tab.id, false)).rejects.toBeInstanceOf(DoubleConfirmationRequiredError);
+    expect(service.snapshot().tabs[0]).toMatchObject({ engine: 'mysql', detectedClassification: 'ambiguous', status: 'waiting_user' });
   });
 });

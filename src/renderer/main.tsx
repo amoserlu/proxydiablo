@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import CodeMirror from '@uiw/react-codemirror';
-import { sql } from '@codemirror/lang-sql';
+import { MySQL, sql } from '@codemirror/lang-sql';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { format as formatSql } from 'sql-formatter';
 import {
@@ -25,6 +25,7 @@ import type {
   AppStateSnapshot,
   CommandResult,
   CommandTab,
+  DatabaseEngine,
   FilterRule,
   PgsqlTab,
   ProxyTab,
@@ -59,7 +60,7 @@ function App() {
   useEffect(() => {
     for (const tab of state.tabs) {
       if (tab.proxyType !== 'pgsql' || tab.source !== 'codex' || formattedTabs.has(tab.id)) continue;
-      const formatted = formatSqlForEditor(tab.sql);
+      const formatted = formatSqlForEditor(tab.sql, tab.engine);
       setFormattedTabs((current) => new Set(current).add(tab.id));
       if (formatted !== tab.sql) void api.updatePgsql(tab.id, formatted);
       break;
@@ -71,7 +72,7 @@ function App() {
       <header className="app-header">
         <div className="brand"><span />proxydiablo</div>
         <button className="primary-action" onClick={() => void api.newPgsqlTab()}>
-          <Plus size={16} /> New PostgreSQL tab
+          <Plus size={16} /> New SQL tab
         </button>
       </header>
 
@@ -83,7 +84,9 @@ function App() {
               className={`tab ${tab.id === active?.id ? 'active' : ''} ${tab.status} ${tab.id === attentionTabId ? 'attention-tab' : ''}`}
               onClick={() => void api.setActiveTab(tab.id)}
             >
-              <span className={`proxy-badge ${tab.proxyType}`}>{tab.proxyType}</span>
+              <span className={`proxy-badge ${tab.proxyType}`}>
+                {tab.proxyType === 'pgsql' && tab.engine === 'mysql' ? 'mysql' : tab.proxyType}
+              </span>
               <span className="tab-title">{tab.title}</span>
               <small>{tab.status}</small>
               <span
@@ -113,7 +116,7 @@ function App() {
         ) : active?.proxyType === 'command' ? (
           <CommandPane key={active.id} tab={active} />
         ) : (
-          <div className="empty-state">No requests. Create a PostgreSQL tab or submit a command from Codex.</div>
+          <div className="empty-state">No requests. Create a SQL tab or submit a command from Codex.</div>
         )}
       </main>
 
@@ -294,7 +297,8 @@ function PgsqlPane({
             value={tab.profile}
             onChange={(event) => {
               const profile = profiles.find((item) => item.name === event.target.value);
-              void api.updateConnection(tab.id, event.target.value, tab.database || profile?.maintenanceDb || 'postgres');
+              const fallbackDatabase = profile?.engine === 'mysql' ? '' : 'postgres';
+              void api.updateConnection(tab.id, event.target.value, tab.database || profile?.maintenanceDb || fallbackDatabase);
             }}
           >
             <option value="">Select profile or environment</option>
@@ -302,6 +306,7 @@ function PgsqlPane({
             {profiles.map((profile) => (
               <option key={profile.id} value={profile.name}>
                 {profile.name}{profile.username ? ` · ${profile.username}` : ''}{profile.host ? ` @ ${profile.host}` : ''}
+                {profile.engine === 'mysql' ? ' · MySQL' : ''}
               </option>
             ))}
           </select>
@@ -320,7 +325,7 @@ function PgsqlPane({
       {tab.passwordRequiredFor && <PasswordPrompt tab={tab} />}
 
       <CommonToolbar tab={tab} actions={actions} runDisabled={connectionMissing}>
-        <button onClick={() => void api.updatePgsql(tab.id, formatSqlForEditor(tab.sql))}>
+        <button onClick={() => void api.updatePgsql(tab.id, formatSqlForEditor(tab.sql, tab.engine))}>
           <AlignLeft size={16} /> Format SQL
         </button>
         <button disabled={!tab.result} onClick={onToggleRaw}>
@@ -336,7 +341,7 @@ function PgsqlPane({
         label="SQL"
         value={tab.sql}
         height={editorHeight}
-        extensions={[sql()]}
+        extensions={[sql(tab.engine === 'mysql' ? { dialect: MySQL } : undefined)]}
         onChange={(value) => void api.updatePgsql(tab.id, value)}
       />
       <GridResizer height={editorHeight} onResize={setEditorHeight} label="Resize SQL editor and result grid" />
@@ -500,7 +505,9 @@ function PgsqlStatus({ tab }: { tab: PgsqlTab; actionError?: string }) {
   return (
     <div className="status-line">
       <span className={`status-pill ${tab.status}`}><i />{tab.status}</span>
-      <span className="kind-label">PGSQL · declared {tab.classification} · detected {tab.detectedClassification}</span>
+      <span className="kind-label">
+        {tab.engine === 'mysql' ? 'MYSQL' : 'PGSQL'} · declared {tab.classification} · detected {tab.detectedClassification}
+      </span>
       {tab.result && <span>{tab.result.rowCount} rows · {tab.result.durationMs} ms</span>}
       {tab.error && <span className="error-text">{tab.error}</span>}
     </div>
@@ -821,7 +828,7 @@ function FilterManager({ filters, onClose }: { filters: FilterRule[]; onClose():
   return (
     <div className="modal-backdrop">
       <div className="filter-modal">
-        <header><h2>PostgreSQL filter rules</h2><button onClick={onClose}>Close</button></header>
+        <header><h2>SQL filter rules</h2><button onClick={onClose}>Close</button></header>
         <div className="filter-actions">
           <button onClick={addRule}><Plus size={16} /> Add rule</button>
           <button className="primary-action" onClick={() => void save()}>Save and reapply</button>
@@ -850,10 +857,10 @@ function formatCell(value: unknown): string {
   return String(value);
 }
 
-function formatSqlForEditor(value: string): string {
+function formatSqlForEditor(value: string, engine: DatabaseEngine = 'postgresql'): string {
   if (!value.trim()) return value;
   try {
-    return formatSql(value, { language: 'postgresql', keywordCase: 'preserve', linesBetweenQueries: 1 });
+    return formatSql(value, { language: engine === 'mysql' ? 'mysql' : 'postgresql', keywordCase: 'preserve', linesBetweenQueries: 1 });
   } catch {
     return value;
   }

@@ -4,7 +4,7 @@
 
 # Proxy Diablo
 
-Proxy Diablo is a localhost-only, human-in-the-loop proxy for PostgreSQL and shell commands. An AI agent can propose an exact action, but a person must review and approve execution in the browser before any result is released.
+Proxy Diablo is a localhost-only, human-in-the-loop proxy for PostgreSQL, MySQL/MariaDB and shell commands. An AI agent can propose an exact action, but a person must review and approve execution in the browser before any result is released.
 
 ## Safety model
 
@@ -12,7 +12,7 @@ Proxy Diablo is a localhost-only, human-in-the-loop proxy for PostgreSQL and she
 - Every action includes a description and a `read` or `write` classification.
 - Reads require one approval; writes and ambiguous SQL require two.
 - Command output is captured silently and never written to service logs.
-- PostgreSQL results support automatic sensitive-column filtering.
+- SQL results support automatic sensitive-column filtering.
 - Results are returned only after an explicit sensitive-data confirmation.
 - **Cancel with explanation** lets the reviewer request a safer or narrower revision.
 
@@ -62,7 +62,7 @@ Codex detects the skill automatically. If it does not appear in `/skills`, resta
 
 ## Manual environments
 
-Besides pgAdmin profiles, Proxy Diablo reads PostgreSQL environments from a JSON file. The default location is `~/.config/proxydiablo/environments.json`; set `PROXYDIABLO_ENVIRONMENTS` to use another path.
+Besides pgAdmin profiles, Proxy Diablo reads PostgreSQL and MySQL environments from a JSON file. The default location is `~/.config/proxydiablo/environments.json`; set `PROXYDIABLO_ENVIRONMENTS` to use another path.
 
 ```json
 {
@@ -80,13 +80,34 @@ Besides pgAdmin profiles, Proxy Diablo reads PostgreSQL environments from a JSON
 }
 ```
 
-`name`, `host` and `user` are required; `port` defaults to 5432 and `database` is the default when a request omits one. Environments appear in `proxydiablo pgsql profiles` and the UI profile list, ahead of pgAdmin profiles, and pgAdmin is optional when at least one environment exists.
+`name`, `host` and `user` are required; `engine` is `postgresql` (default) or `mysql`, `port` defaults to 5432 or 3306 by engine, and `database` is the default when a request omits one. Environments appear in `proxydiablo pgsql profiles` and the UI profile list, ahead of pgAdmin profiles, and pgAdmin is optional when at least one environment exists.
 
 Password resolution order: a password typed in the UI for this session, the variable named by `passwordEnv`, the `password` field, then the standard `PGPASSWORD` / `~/.pgpass` lookup. If the server rejects the connection for lack of a password, the tab asks for one in the UI. It is kept in memory only and never written to disk. Prefer `passwordEnv` or the UI prompt over `password`.
 
+### MySQL and MariaDB
+
+Set `engine` to `mysql` for MySQL 8+ or MariaDB servers; everything else (password prompt, `passwordEnv`, `sslmode`, `rds-iam`) works the same. The `pgsql` CLI commands and the `sql` alias serve both engines; the environment decides which driver runs.
+
+```json
+{
+  "name": "shop-staging",
+  "engine": "mysql",
+  "host": "mysql.staging.example.com",
+  "database": "shop",
+  "user": "readonly",
+  "passwordEnv": "SHOP_DB_PASSWORD"
+}
+```
+
+- Reads run with `SET SESSION TRANSACTION READ ONLY` and `START TRANSACTION READ ONLY`, so DML and DDL fail even if a script commits midway.
+- SQL is classified with MySQL lexing (`#` and `-- ` comments, backticks, backslash escapes). Executable comments (`/*! */`, `/*M! */`), splits that depend on `NO_BACKSLASH_ESCAPES`/`ANSI_QUOTES`, `INTO OUTFILE`/`DUMPFILE`, and `SET GLOBAL` are never treated as reads.
+- `inspect` treats the database as the schema: tables, views and columns default to the connected database; `--schema` selects another one and `--schemas` lists the databases the user can see.
+- Dates are returned as stored (no timezone conversion) and `BIGINT`/`DECIMAL` values as strings, like PostgreSQL `int8`/`numeric`.
+- `PGPASSWORD` and `~/.pgpass` do not apply; use `passwordEnv` or the UI prompt.
+
 ### AWS IAM database authentication
 
-For RDS/Aurora databases that use IAM auth, set `auth` to `rds-iam` and name the AWS CLI profile. No password is stored anywhere: a fresh token is generated for every connection with `aws rds generate-db-auth-token` and SSL defaults to `require`.
+For RDS/Aurora databases (PostgreSQL or MySQL) that use IAM auth, set `auth` to `rds-iam` and name the AWS CLI profile. No password is stored anywhere: a fresh token is generated for every connection with `aws rds generate-db-auth-token` and SSL defaults to `require`.
 
 ```json
 {

@@ -13,6 +13,7 @@ export type ProxyStatus =
   | 'error';
 
 export type SqlClassification = 'read' | 'write' | 'ambiguous';
+export type DatabaseEngine = 'postgresql' | 'mysql';
 
 export interface ProfileSummary {
   id: number;
@@ -21,6 +22,7 @@ export interface ProfileSummary {
   port?: number;
   username?: string;
   maintenanceDb?: string;
+  engine?: DatabaseEngine;
 }
 
 export interface QueryColumn {
@@ -68,6 +70,8 @@ export interface PgsqlTab extends BaseProxyTab {
   profile: string;
   database: string;
   sql: string;
+  /** Absent on tabs created before engines existed; treated as PostgreSQL. */
+  engine?: DatabaseEngine;
   detectedClassification: SqlClassification;
   result?: QueryResult;
   filtered?: FilteredResult;

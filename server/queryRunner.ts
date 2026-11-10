@@ -1,5 +1,6 @@
 import pg from 'pg';
 import type { QueryResult } from '../src/shared/types.js';
+import { runMysqlQuery } from './mysql.js';
 import type { ResolvedConnection } from './pgadmin.js';
 
 export async function runQuery(conn: ResolvedConnection, sql: string, readOnly: boolean): Promise<QueryResult> {
@@ -20,6 +21,7 @@ async function runQueryWithParams(
   params: unknown[],
   readOnly: boolean,
 ): Promise<QueryResult> {
+  if (conn.engine === 'mysql') return runMysqlQuery(conn, sql, params, readOnly);
   const client = new pg.Client({
     host: conn.host,
     port: conn.port,

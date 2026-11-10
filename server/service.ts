@@ -15,7 +15,7 @@ import type {
   ProxyResponse,
   ProxyTab,
 } from '../src/shared/types.js';
-import { passwordPromptReason, setSessionPassword } from './environments.js';
+import { passwordPromptReason, profileEngine, setSessionPassword } from './environments.js';
 import { listProfiles, resolveConnection } from './pgadmin.js';
 import { inspectStructure } from './pgsql.js';
 import { runQuery } from './queryRunner.js';
@@ -97,18 +97,20 @@ export class ProxyService {
     const sql = request?.sql ?? '';
     const profile = request?.profile ?? '';
     const database = request?.database ?? '';
+    const engine = profileEngine(profile);
     const tab: PgsqlTab = {
       id: this.makeId(request ? 'pgsql' : 'manual'),
       proxyType: 'pgsql',
-      title: database || 'New PostgreSQL request',
+      title: database || 'New SQL request',
       profile,
       database,
       sql,
+      engine,
       description: request?.description?.trim() || undefined,
       source: request ? 'codex' : 'manual',
       status: request ? 'waiting_user' : 'draft',
       classification: request?.classification ?? 'read',
-      detectedClassification: classifySql(sql),
+      detectedClassification: classifySql(sql, engine),
       createdAt: new Date().toISOString(),
     };
     this.addTab(tab, Boolean(request));
@@ -166,7 +168,7 @@ export class ProxyService {
     if (!tab) return;
     this.updateTab(tabId, {
       sql,
-      detectedClassification: classifySql(sql),
+      detectedClassification: classifySql(sql, tab.engine),
       status: tab.status === 'waiting_user' ? 'waiting_user' : 'draft',
       error: undefined,
       result: undefined,
@@ -177,10 +179,13 @@ export class ProxyService {
   updateConnection(tabId: string, profile: string, database: string): void {
     const tab = this.getTab(tabId, 'pgsql');
     if (!tab) return;
+    const engine = profileEngine(profile);
     this.updateTab(tabId, {
       profile,
       database,
-      title: database || profile || 'New PostgreSQL request',
+      engine,
+      detectedClassification: classifySql(tab.sql, engine),
+      title: database || profile || 'New SQL request',
       error: undefined,
       status: tab.source === 'codex' ? 'waiting_user' : 'draft',
     });
@@ -206,6 +211,7 @@ export class ProxyService {
   }
 
   async approveTab(tabId: string, doubleConfirmed: boolean): Promise<void> {
+    this.refreshEngine(tabId);
     const tab = this.tabs.find((item) => item.id === tabId);
     if (!tab) return;
     if (requiresDoubleConfirmation(tab) && !doubleConfirmed) throw new DoubleConfirmationRequiredError();
@@ -345,6 +351,17 @@ export class ProxyService {
   }
 
   inspect = inspectStructure;
+
+  /** environments.json may have changed the profile's engine since the SQL was classified. */
+  private refreshEngine(tabId: string): void {
+    const tab = this.getTab(tabId, 'pgsql');
+    if (!tab) return;
+    const engine = profileEngine(tab.profile);
+    const detectedClassification = classifySql(tab.sql, engine);
+    if (engine !== (tab.engine ?? 'postgresql') || detectedClassification !== tab.detectedClassification) {
+      this.updateTab(tabId, { engine, detectedClassification });
+    }
+  }
 
   private addTab(tab: ProxyTab, requestAttention: boolean): void {
     this.tabs = [...this.tabs, tab];

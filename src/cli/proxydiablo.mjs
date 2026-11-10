@@ -390,11 +390,13 @@ async function main() {
     await ensureService({ open: true });
     return;
   }
-  if (group === 'pgsql' && command === 'profiles') return pgsqlProfiles();
-  if (group === 'pgsql' && command === 'inspect') return pgsqlInspect(args);
-  if (group === 'pgsql' && command === 'submit') return pgsqlSubmit(args);
+  // `sql` is an engine-neutral alias: the profile or environment decides between PostgreSQL and MySQL.
+  const sqlGroup = group === 'pgsql' || group === 'sql';
+  if (sqlGroup && command === 'profiles') return pgsqlProfiles();
+  if (sqlGroup && command === 'inspect') return pgsqlInspect(args);
+  if (sqlGroup && command === 'submit') return pgsqlSubmit(args);
   if (group === 'command') return commandSubmit([command, ...args].filter((value) => value !== undefined));
-  throw new Error('Usage: proxydiablo ui | pgsql <profiles|inspect|submit> | command <options>');
+  throw new Error('Usage: proxydiablo ui | sql|pgsql <profiles|inspect|submit> | command <options>');
 }
 
 function delay(milliseconds) {
