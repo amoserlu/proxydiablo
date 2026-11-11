@@ -149,7 +149,7 @@ export class ProxyService {
   abandonPgsql(tabId: string): void {
     if (!this.pgsqlWaiters.delete(tabId)) return;
     const tab = this.getTab(tabId, 'pgsql');
-    if (!tab || ['released', 'cancelled', 'revision_requested'].includes(tab.status)) return;
+    if (!tab || ['released', 'cancelled', 'revision_requested', 'error_sent'].includes(tab.status)) return;
     this.updateTab(tabId, {
       status: 'cancelled',
       error: 'The requester disconnected, so nothing can receive this result. Ask the agent to submit it again.',
@@ -309,10 +309,21 @@ export class ProxyService {
     this.issueCommandInstruction(tabId, { type: 'released' });
   }
 
+  /** Returns a failed request's error to the waiting requester, after the same sensitive-data check as output. */
+  sendError(tabId: string, sensitiveDataConfirmed: boolean): void {
+    if (!sensitiveDataConfirmed) throw new SensitiveOutputConfirmationRequiredError();
+    const tab = this.tabs.find((item) => item.id === tabId);
+    if (!tab || tab.status !== 'error' || !tab.error) return;
+    const error = tab.error;
+    this.updateTab(tabId, { status: 'error_sent', releasedAt: new Date().toISOString() });
+    if (tab.proxyType === 'command') this.issueCommandInstruction(tabId, { type: 'error', error });
+    else this.finishPgsql(tabId, { status: 'error', tabId, proxyType: 'pgsql', error });
+  }
+
   closeTab(tabId: string): void {
     const tab = this.tabs.find((item) => item.id === tabId);
     if (!tab) return;
-    if (!['released', 'cancelled', 'revision_requested'].includes(tab.status)) this.cancelTab(tabId);
+    if (!['released', 'cancelled', 'revision_requested', 'error_sent'].includes(tab.status)) this.cancelTab(tabId);
     const index = this.tabs.findIndex((item) => item.id === tabId);
     this.tabs = this.tabs.filter((item) => item.id !== tabId);
     if (this.activeTabId === tabId) {

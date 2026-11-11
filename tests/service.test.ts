@@ -169,6 +169,43 @@ describe('ProxyService column filters', () => {
   });
 });
 
+describe('ProxyService send error', () => {
+  const failTab = (service: ProxyService, tabId: string, error: string) =>
+    (service as unknown as { updateTab(id: string, patch: object): void }).updateTab(tabId, { status: 'error', error });
+
+  it('returns a SQL error to the waiting requester only after the sensitive-data check', async () => {
+    const service = new ProxyService();
+    const { tabId, response } = service.startPgsqlSubmission({
+      profile: 'p',
+      database: 'd',
+      sql: 'select missing_column from users;',
+      description: 'Send error test.',
+      classification: 'read',
+    });
+    service.sendError(tabId, true);
+    expect(service.snapshot().tabs[0].status).toBe('waiting_user');
+
+    failTab(service, tabId, 'column "missing_column" does not exist');
+    expect(() => service.sendError(tabId, false)).toThrow(SensitiveOutputConfirmationRequiredError);
+    service.sendError(tabId, true);
+    await expect(response).resolves.toEqual({
+      status: 'error',
+      tabId,
+      proxyType: 'pgsql',
+      error: 'column "missing_column" does not exist',
+    });
+    expect(service.snapshot().tabs[0].status).toBe('error_sent');
+  });
+
+  it('returns a command error through the instruction channel', () => {
+    const service = new ProxyService();
+    const tab = service.createCommandTab({ command: 'true', cwd: '/tmp', description: 'Send error test.', classification: 'read' });
+    failTab(service, tab.id, 'Command and working directory are required.');
+    service.sendError(tab.id, true);
+    expect(service.commandInstruction(tab.id, 0)).toMatchObject({ type: 'error', error: 'Command and working directory are required.' });
+  });
+});
+
 describe('ProxyService abandoned submissions', () => {
   it('cancels a waiting tab when its requester disconnects', async () => {
     const service = new ProxyService();

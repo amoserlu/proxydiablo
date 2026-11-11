@@ -129,15 +129,17 @@ interface CommonActionState {
   confirmationStep?: 1 | 2;
   showRevision?: boolean;
   showRelease?: boolean;
+  showSendError?: boolean;
   actionError?: string;
 }
 
 function useCommonActions(tab: ProxyTab) {
   const [state, setState] = useState<CommonActionState>({});
   const requiresDouble = tab.classification === 'write' || (tab.proxyType === 'pgsql' && tab.detectedClassification !== 'read');
-  const canRun = !['running', 'released', 'cancelled', 'revision_requested'].includes(tab.status);
-  const canCancel = !['released', 'cancelled', 'revision_requested'].includes(tab.status);
+  const canRun = !['running', 'released', 'cancelled', 'revision_requested', 'error_sent'].includes(tab.status);
+  const canCancel = !['released', 'cancelled', 'revision_requested', 'error_sent'].includes(tab.status);
   const canRelease = tab.status === 'executed' && Boolean(tab.result);
+  const canSendError = tab.status === 'error' && Boolean(tab.error);
 
   async function perform(action: () => Promise<unknown>) {
     setState((current) => ({ ...current, actionError: undefined }));
@@ -154,6 +156,7 @@ function useCommonActions(tab: ProxyTab) {
     canRun,
     canCancel,
     canRelease,
+    canSendError,
     openRun: () => requiresDouble
       ? setState((current) => ({ ...current, confirmationStep: 1 }))
       : void perform(() => api.run(tab.id, false)),
@@ -175,6 +178,12 @@ function useCommonActions(tab: ProxyTab) {
     confirmRelease: () => {
       setState((current) => ({ ...current, showRelease: false }));
       void perform(() => api.release(tab.id));
+    },
+    openSendError: () => setState((current) => ({ ...current, showSendError: true })),
+    closeSendError: () => setState((current) => ({ ...current, showSendError: false })),
+    confirmSendError: () => {
+      setState((current) => ({ ...current, showSendError: false }));
+      void perform(() => api.sendError(tab.id));
     },
   };
 }
@@ -209,6 +218,13 @@ function CommonToolbar({
         <button disabled={!actions.canRelease} onClick={actions.openRelease}>
           <Send size={16} /> Send output
         </button>
+        <button
+          disabled={!actions.canSendError}
+          title="Send the error message to the requester"
+          onClick={actions.openSendError}
+        >
+          <AlertTriangle size={16} /> Send error
+        </button>
         {children}
       </div>
       {actions.state.actionError && <div className="action-error">{actions.state.actionError}</div>}
@@ -226,6 +242,14 @@ function CommonToolbar({
       )}
       {actions.state.showRelease && (
         <ReleaseConfirmationModal onCancel={actions.closeRelease} onConfirm={actions.confirmRelease} />
+      )}
+      {actions.state.showSendError && (
+        <ReleaseConfirmationModal
+          kind="error"
+          detail={tab.error}
+          onCancel={actions.closeSendError}
+          onConfirm={actions.confirmSendError}
+        />
       )}
     </>
   );
@@ -796,19 +820,33 @@ function RevisionModal({ onCancel, onConfirm }: { onCancel(): void; onConfirm(ex
   );
 }
 
-function ReleaseConfirmationModal({ onCancel, onConfirm }: { onCancel(): void; onConfirm(): void }) {
+function ReleaseConfirmationModal({
+  kind = 'output',
+  detail,
+  onCancel,
+  onConfirm,
+}: {
+  kind?: 'output' | 'error';
+  detail?: string;
+  onCancel(): void;
+  onConfirm(): void;
+}) {
+  const error = kind === 'error';
   return (
     <div className="modal-backdrop">
       <div className="warning-modal" role="alertdialog" aria-modal="true" aria-labelledby="release-title">
         <div className="warning-icon"><AlertTriangle size={22} /></div>
         <div>
           <small>Sensitive-data check</small>
-          <h2 id="release-title">Are you sure there is no sensitive data?</h2>
-          <p>Only send the output after inspecting it. Command output is never filtered automatically.</p>
+          <h2 id="release-title">{error ? 'Is the error message free of sensitive data?' : 'Are you sure there is no sensitive data?'}</h2>
+          <p>{error
+            ? 'Error messages are not filtered and can quote row values, for example a duplicate key. This exact text will be sent:'
+            : 'Only send the output after inspecting it. Command output is never filtered automatically.'}</p>
+          {detail && <pre className="modal-detail">{detail}</pre>}
         </div>
         <div className="warning-actions">
-          <button onClick={onCancel}>Review output</button>
-          <button className="danger-confirm" onClick={onConfirm}>I confirm — send output</button>
+          <button onClick={onCancel}>{error ? 'Review error' : 'Review output'}</button>
+          <button className="danger-confirm" onClick={onConfirm}>{error ? 'I confirm — send error message' : 'I confirm — send output'}</button>
         </div>
       </div>
     </div>

@@ -108,7 +108,7 @@ button:hover:not(:disabled) { background: #221c1c; }
 .tab::before { content: ""; width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: #5a5252; }
 .tab.waiting_user::before, .tab.running::before, .tab.error::before, .tab.cancelled::before, .tab.revision_requested::before { background: #e01a2b; }
 .tab.executed::before { background: #f2eded; }
-.tab.released::before { background: #a89b9b; }
+.tab.released::before, .tab.error_sent::before { background: #a89b9b; }
 .tab.running::before { animation: pulse 1s ease-in-out infinite; }
 .tab.active { border-color: rgba(224, 26, 43, .4); background: #221a1a; box-shadow: inset 0 -2px 0 #e01a2b; }
 .tab.attention-tab { animation: attention-tab .7s ease-in-out 2; }
@@ -203,7 +203,8 @@ input:focus, select:focus { border-color: #e01a2b; }
 .status-pill i { width: 6px; height: 6px; border-radius: 50%; background: #5a5252; }
 .status-pill.waiting_user i, .status-pill.running i, .status-pill.cancelled i, .status-pill.revision_requested i, .status-pill.error i { background: #e01a2b; }
 .status-pill.executed i { background: #f2eded; }
-.status-pill.released i { background: #a89b9b; }
+.status-pill.released i, .status-pill.error_sent i { background: #a89b9b; }
+.modal-detail { max-height: 180px; overflow: auto; margin: 10px 0 0; padding: 10px 12px; border: 1px solid #3a2a2c; border-radius: 8px; background: #0f0d0d; color: #ff8a95; font: 12px/1.5 "SFMono-Regular", Consolas, "Liberation Mono", monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .status-pill.running i { animation: pulse 1s ease-in-out infinite; }
 .error-text { color: #ff5a68; }
 .kind-label { color: #d8caca; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }

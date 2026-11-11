@@ -10,7 +10,8 @@ export type ProxyStatus =
   | 'released'
   | 'cancelled'
   | 'revision_requested'
-  | 'error';
+  | 'error'
+  | 'error_sent';
 
 export type SqlClassification = 'read' | 'write' | 'ambiguous';
 export type DatabaseEngine = 'postgresql' | 'mysql';
