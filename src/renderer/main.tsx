@@ -31,6 +31,7 @@ import type {
   ProxyTab,
 } from '../shared/types';
 import { api } from './api';
+import { NotificationToggles } from './notifications';
 import './styles.css';
 
 function App() {
@@ -74,6 +75,7 @@ function App() {
         <button className="primary-action" onClick={() => void api.newPgsqlTab()}>
           <Plus size={16} /> New SQL tab
         </button>
+        <NotificationToggles state={state} />
       </header>
 
       <main className="workspace">

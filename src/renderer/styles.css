@@ -79,6 +79,11 @@ button:hover:not(:disabled) { background: #221c1c; }
   font-weight: 700;
 }
 .primary-action:hover:not(:disabled) { background: #fff0f1; }
+.notification-toggles { display: inline-flex; gap: 6px; }
+.notification-toggles button { width: 38px; padding: 0; border-color: rgba(255, 255, 255, .55); color: #fff; }
+.notification-toggles button:hover:not(:disabled) { background: rgba(255, 255, 255, .14); }
+.notification-toggles button.on { border-color: #fff; background: #fff; color: #e01a2b; }
+.notification-toggles button.on:hover:not(:disabled) { background: #fff0f1; }
 
 .workspace { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .tab-strip {
