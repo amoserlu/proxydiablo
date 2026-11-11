@@ -55,8 +55,8 @@ export const api = {
   closeTab: (tabId: string) => request('DELETE', tabRoute(tabId), {}),
   saveFilters: (filters: FilterRule[]) => request('PUT', '/api/filters', { filters }),
   quickFilter: (columnName: string) => request('POST', '/api/filters/quick', { columnName }),
-  toggleTabFilterExemption: (tabId: string, columnName: string) =>
-    request('POST', tabRoute(tabId, 'filter-exemption'), { columnName }),
+  toggleTabColumnFilter: (tabId: string, columnName: string) =>
+    request('POST', tabRoute(tabId, 'column-filter'), { columnName }),
   onState(callback: (state: AppStateSnapshot) => void, onError?: () => void): () => void {
     let events: EventSource | undefined;
     let closed = false;

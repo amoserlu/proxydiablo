@@ -246,7 +246,7 @@ input:focus, select:focus { border-color: #e01a2b; }
 .result-grid td.filtered-column { background: rgba(224, 26, 43, .16); color: #ff8a95; }
 .result-grid th.exempt-column { background: #242020; color: #f2eded; }
 .result-grid td.exempt-column { background: #242020; color: #f2eded; }
-.column-actions .column-exempt-active { border-color: #4a4040; background: #2e2828; color: #fff; }
+.column-actions .column-hidden-active { border-color: rgba(224, 26, 43, .6); background: #3a171b; color: #ff8a95; }
 .result-grid .selected-cell { box-shadow: inset 0 0 0 2px #ff5a68; background: rgba(224, 26, 43, .3); color: #fff; }
 .grid-selection-bar { position: sticky; left: 0; top: 0; z-index: 20; width: max-content; min-width: 100%; height: 42px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid #2a2424; background: #221a1a; color: #f2eded; }
 .grid-selection-bar button { height: 28px; padding: 0 9px; border-color: #342c2c; }

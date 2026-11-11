@@ -616,9 +616,9 @@ function ResultGrid({
           <tr>
             <th>#</th>
             {result.columns.map((column) => {
-              const isExempt = filterExemptColumns.has(column.name.toLowerCase());
+              const hidden = filteredColumns.has(column.name);
               return (
-                <th key={column.name} className={isExempt ? 'exempt-column' : filteredColumns.has(column.name) ? 'filtered-column' : ''}>
+                <th key={column.name} className={columnClass(column.name, filteredColumns, filterExemptColumns)}>
                   <div className="column-head">
                     <span>{column.name}</span>
                     <div className="column-actions">
@@ -627,10 +627,10 @@ function ResultGrid({
                         onClick={() => void api.quickFilter(column.name)}
                       ><Filter size={13} /></button>
                       <button
-                        className={isExempt ? 'column-exempt-active' : ''}
-                        title={isExempt ? 'Apply filters to this column in this tab' : 'Do not filter this column in this tab'}
-                        onClick={() => void api.toggleTabFilterExemption(tabId, column.name)}
-                      >{isExempt ? <EyeOff size={13} /> : <Eye size={13} />}</button>
+                        className={hidden ? 'column-hidden-active' : ''}
+                        title={hidden ? 'Hidden from the output: show this column in this tab' : 'Sent in the output: hide this column in this tab'}
+                        onClick={() => void api.toggleTabColumnFilter(tabId, column.name)}
+                      >{hidden ? <EyeOff size={13} /> : <Eye size={13} />}</button>
                     </div>
                   </div>
                 </th>
@@ -644,11 +644,10 @@ function ResultGrid({
               <td className="row-num">{rowIndex + 1}</td>
               {result.columns.map((column, columnIndex) => {
                 const selected = isCellSelected(selection, rowIndex, columnIndex);
-                const exempt = filterExemptColumns.has(column.name.toLowerCase());
                 return (
                   <td
                     key={column.name}
-                    className={[exempt ? 'exempt-column' : filteredColumns.has(column.name) ? 'filtered-column' : '', selected ? 'selected-cell' : ''].filter(Boolean).join(' ')}
+                    className={[columnClass(column.name, filteredColumns, filterExemptColumns), selected ? 'selected-cell' : ''].filter(Boolean).join(' ')}
                     onMouseDown={(event) => {
                       if (event.button !== 0) return;
                       event.preventDefault();
@@ -670,6 +669,12 @@ function ResultGrid({
       </table>
     </div>
   );
+}
+
+/** Hidden columns are red; columns a rule would hide but this tab shows are highlighted as exempt. */
+function columnClass(name: string, filteredColumns: Set<string>, filterExemptColumns: Set<string>): string {
+  if (filteredColumns.has(name)) return 'filtered-column';
+  return filterExemptColumns.has(name.toLowerCase()) ? 'exempt-column' : '';
 }
 
 interface CellCoord { row: number; column: number }

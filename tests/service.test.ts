@@ -148,6 +148,27 @@ describe('ProxyService', () => {
   });
 });
 
+describe('ProxyService column filters', () => {
+  it('flips any column of a tab between hidden and shown from the eye toggle', () => {
+    const service = new ProxyService();
+    const tab = service.createPgsqlTab();
+    const result = { columns: [{ name: 'email' }, { name: 'total' }], rows: [{ email: 'a@example.com', total: 3 }], rowCount: 1, durationMs: 1 };
+    (service as unknown as { updateTab(id: string, patch: object): void }).updateTab(tab.id, { result });
+    const hidden = (column: string) => {
+      const current = service.snapshot().tabs[0];
+      return current.proxyType === 'pgsql' && Boolean(current.filtered?.filteredColumns.includes(column));
+    };
+    // Starting state depends on the configured rules; the toggle must flip it either way.
+    for (const column of ['email', 'total']) {
+      const initially = hidden(column);
+      service.toggleTabColumnFilter(tab.id, column);
+      expect(hidden(column)).toBe(!initially);
+      service.toggleTabColumnFilter(tab.id, column);
+      expect(hidden(column)).toBe(initially);
+    }
+  });
+});
+
 describe('ProxyService abandoned submissions', () => {
   it('cancels a waiting tab when its requester disconnects', async () => {
     const service = new ProxyService();

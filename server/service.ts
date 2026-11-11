@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { applyFilters, toggleExactFilter } from '../src/shared/filters.js';
+import { applyFilters, toggleExactFilter, toggleTabColumnFilter } from '../src/shared/filters.js';
 import { classifySql } from '../src/shared/sqlClassifier.js';
 import type {
   ActionClassification,
@@ -338,16 +338,11 @@ export class ProxyService {
     this.reapplyFilters();
   }
 
-  toggleTabFilterExemption(tabId: string, columnName: string): void {
+  toggleTabColumnFilter(tabId: string, columnName: string): void {
     const tab = this.getTab(tabId, 'pgsql');
-    if (!tab) return;
-    const existing = tab.filterExemptColumns ?? [];
-    const exists = existing.some((column) => column.toLowerCase() === columnName.toLowerCase());
-    this.updateTab(tabId, {
-      filterExemptColumns: exists
-        ? existing.filter((column) => column.toLowerCase() !== columnName.toLowerCase())
-        : [...existing, columnName],
-    });
+    if (!tab || !columnName) return;
+    const next = toggleTabColumnFilter(columnName, this.filters, tab.filterExemptColumns ?? [], tab.filterHiddenColumns ?? []);
+    this.updateTab(tabId, { filterExemptColumns: next.exemptColumns, filterHiddenColumns: next.hiddenColumns });
   }
 
   inspect = inspectStructure;
@@ -384,7 +379,12 @@ export class ProxyService {
       if (tab.id !== tabId) return tab;
       const updated = { ...tab, ...patch } as ProxyTab;
       if (updated.proxyType === 'pgsql' && updated.result) {
-        updated.filtered = applyFilters(updated.result, this.filters, updated.filterExemptColumns ?? []);
+        updated.filtered = applyFilters(
+          updated.result,
+          this.filters,
+          updated.filterExemptColumns ?? [],
+          updated.filterHiddenColumns ?? [],
+        );
       }
       return updated;
     });
@@ -393,7 +393,7 @@ export class ProxyService {
 
   private reapplyFilters(): void {
     this.tabs = this.tabs.map((tab) => tab.proxyType === 'pgsql' && tab.result
-      ? { ...tab, filtered: applyFilters(tab.result, this.filters, tab.filterExemptColumns ?? []) }
+      ? { ...tab, filtered: applyFilters(tab.result, this.filters, tab.filterExemptColumns ?? [], tab.filterHiddenColumns ?? []) }
       : tab);
     this.broadcast();
   }
