@@ -21,6 +21,7 @@ export interface EnvironmentEntry {
   password?: string;
   passwordEnv?: string;
   sslmode?: string;
+  sslrootcert?: string;
   auth?: EnvironmentAuth;
   awsProfile?: string;
   region?: string;
@@ -45,7 +46,7 @@ export class PasswordRequiredError extends Error {
 const sessionPasswords = new Map<string, { identity: string; password: string }>();
 
 function connectionIdentity(entry: EnvironmentEntry): string {
-  return JSON.stringify([entry.host, entry.port ?? 5432, entry.user, entry.database ?? '', entry.sslmode ?? '', entry.passwordEnv ?? '', entry.password ?? '', entry.auth ?? 'password', entry.iamHost ?? '', entry.iamPort ?? 5432]);
+  return JSON.stringify([entry.host, entry.port ?? 5432, entry.user, entry.database ?? '', entry.sslmode ?? '', entry.sslrootcert ?? '', entry.passwordEnv ?? '', entry.password ?? '', entry.auth ?? 'password', entry.iamHost ?? '', entry.iamPort ?? 5432]);
 }
 
 function sessionPassword(entry: EnvironmentEntry): string | undefined {
@@ -125,6 +126,7 @@ function parseEntry(item: unknown, index: number): EnvironmentEntry {
     password: text('password', false),
     passwordEnv: text('passwordEnv', false),
     sslmode: text('sslmode', false),
+    sslrootcert: text('sslrootcert', false),
     auth,
     awsProfile: text('awsProfile', false),
     region: text('region', false),
@@ -132,6 +134,7 @@ function parseEntry(item: unknown, index: number): EnvironmentEntry {
     iamPort: iamPort as number | undefined,
   };
   if (auth === 'rds-iam') {
+    if (entry.sslmode && entry.sslmode !== 'verify-full') throw new Error(`${where}: IAM requires sslmode=verify-full.`);
     if (entry.password || entry.passwordEnv) throw new Error(`${where}: rds-iam environments cannot define a password.`);
     if (!entry.region && !regionFromHost(entry.iamHost ?? entry.host)) {
       throw new Error(`${where}.region is required (it could not be derived from the host).`);
@@ -263,7 +266,10 @@ export async function resolveEnvironment(profile: string, database: string): Pro
     database: database || entry.database || '',
     user: entry.user,
     password,
-    sslmode: iam ? entry.sslmode ?? 'require' : entry.sslmode,
+    sslmode: iam ? 'verify-full' : entry.sslmode,
+    sslrootcert: entry.sslrootcert,
+    tlsServerName: iam ? entry.iamHost ?? entry.host : undefined,
+    auth: entry.auth,
   };
 }
 

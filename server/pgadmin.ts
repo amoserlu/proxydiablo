@@ -16,6 +16,9 @@ export interface ResolvedConnection {
   user?: string;
   password?: string;
   sslmode?: string;
+  sslrootcert?: string;
+  tlsServerName?: string;
+  auth?: 'password' | 'rds-iam';
   connect_timeout?: string;
   service?: string;
 }
