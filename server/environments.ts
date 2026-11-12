@@ -39,7 +39,18 @@ export class PasswordRequiredError extends Error {
   }
 }
 
-const sessionPasswords = new Map<string, string>();
+const sessionPasswords = new Map<string, { identity: string; password: string }>();
+
+function connectionIdentity(entry: EnvironmentEntry): string {
+  return JSON.stringify([entry.host, entry.port ?? 5432, entry.user, entry.database ?? '', entry.sslmode ?? '', entry.passwordEnv ?? '', entry.password ?? '']);
+}
+
+function sessionPassword(entry: EnvironmentEntry): string | undefined {
+  const cached = sessionPasswords.get(entry.name);
+  if (cached?.identity === connectionIdentity(entry)) return cached.password;
+  sessionPasswords.delete(entry.name);
+  return undefined;
+}
 
 export function environmentsPath(): string {
   return process.env.PROXYDIABLO_ENVIRONMENTS ?? path.join(configDirectory, 'environments.json');
@@ -51,7 +62,10 @@ export function loadEnvironments(): EnvironmentEntry[] {
   try {
     raw = fs.readFileSync(file, 'utf8');
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      sessionPasswords.clear();
+      return [];
+    }
     throw new Error(`Cannot read environments file ${file}.`);
   }
   let parsed: unknown;
@@ -63,12 +77,18 @@ export function loadEnvironments(): EnvironmentEntry[] {
   const list = (parsed as { environments?: unknown })?.environments;
   if (!Array.isArray(list)) throw new Error(`Environments file ${file} must contain an "environments" array.`);
   const seen = new Set<string>();
-  return list.map((item, index) => {
+  const entries = list.map((item, index) => {
     const entry = parseEntry(item, index);
     if (seen.has(entry.name)) throw new Error(`Environments file has a duplicate name "${entry.name}".`);
     seen.add(entry.name);
     return entry;
   });
+  for (const name of sessionPasswords.keys()) {
+    const entry = entries.find(item => item.name === name);
+    if (!entry) sessionPasswords.delete(name);
+    else sessionPassword(entry);
+  }
+  return entries;
 }
 
 function parseEntry(item: unknown, index: number): EnvironmentEntry {
@@ -123,9 +143,10 @@ export function listEnvironmentProfiles(): ProfileSummary[] {
 }
 
 export function setSessionPassword(name: string, password: string): void {
-  if (!loadEnvironments().some((entry) => entry.name === name)) throw new Error(`Unknown environment "${name}".`);
+  const entry = loadEnvironments().find((entry) => entry.name === name);
+  if (!entry) throw new Error(`Unknown environment "${name}".`);
   if (!password) throw new Error('A password is required.');
-  sessionPasswords.set(name, password);
+  sessionPasswords.set(name, { identity: connectionIdentity(entry), password });
 }
 
 export function clearSessionPasswords(): void {
@@ -221,7 +242,7 @@ export async function resolveEnvironment(profile: string, database: string): Pro
   const iam = entry.auth === 'rds-iam';
   const password = iam
     ? await mintIamToken(entry)
-    : sessionPasswords.get(entry.name) ??
+    : sessionPassword(entry) ??
       (entry.passwordEnv ? process.env[entry.passwordEnv] : undefined) ??
       entry.password;
   return {
@@ -252,7 +273,7 @@ export function passwordPromptReason(profile: string, error: unknown): 'missing'
   if (!entry || entry.auth === 'rds-iam') return undefined;
   const message = error instanceof Error ? error.message : String(error);
   const code = (error as { code?: unknown })?.code;
-  if (code !== '28P01' && !/password/i.test(message)) return undefined;
+  if (code !== '28P01' && !/^SASL: .*client password must be a (?:string|non-empty string)$/i.test(message)) return undefined;
   if (sessionPasswords.has(entry.name)) {
     sessionPasswords.delete(entry.name);
     return 'rejected';
