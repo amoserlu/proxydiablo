@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ProfileSummary } from '../src/shared/types.js';
+import { environmentName } from '../src/shared/profileSelectors.js';
 import { configDirectory } from './paths.js';
 import type { ResolvedConnection } from './pgadmin.js';
 
@@ -106,6 +107,7 @@ export function listEnvironmentProfiles(): ProfileSummary[] {
   return loadEnvironments().map((entry, index) => ({
     id: -(index + 1),
     name: entry.name,
+    selector: `env:${entry.name}`,
     host: entry.host,
     port: entry.port,
     username: entry.user,
@@ -114,10 +116,10 @@ export function listEnvironmentProfiles(): ProfileSummary[] {
 }
 
 export function setSessionPassword(name: string, password: string): void {
-  const entry = loadEnvironments().find((entry) => entry.name === name);
+  const entry = loadEnvironments().find((entry) => entry.name === environmentName(name));
   if (!entry) throw new Error(`Unknown environment "${name}".`);
   if (!password) throw new Error('A password is required.');
-  sessionPasswords.set(name, { identity: connectionIdentity(entry), password });
+  sessionPasswords.set(entry.name, { identity: connectionIdentity(entry), password });
 }
 
 export function clearSessionPasswords(): void {
@@ -126,7 +128,7 @@ export function clearSessionPasswords(): void {
 
 export function isEnvironmentName(name: string): boolean {
   try {
-    return loadEnvironments().some((entry) => entry.name === name);
+    return loadEnvironments().some((entry) => entry.name === environmentName(name));
   } catch {
     return false;
   }
@@ -135,7 +137,7 @@ export function isEnvironmentName(name: string): boolean {
 /** Returns undefined when `profile` is not a manual environment, so the caller can fall back to pgAdmin. */
 export function resolveEnvironment(profile: string, database: string): ResolvedConnection | undefined {
   const entries = loadEnvironments();
-  const index = entries.findIndex((entry) => entry.name === profile);
+  const index = entries.findIndex((entry) => entry.name === environmentName(profile));
   if (index < 0) return undefined;
   const entry = entries[index];
   const password =
@@ -162,7 +164,7 @@ export function resolveEnvironment(profile: string, database: string): ResolvedC
 export function passwordPromptReason(profile: string, error: unknown): 'missing' | 'rejected' | undefined {
   const entry = (() => {
     try {
-      return loadEnvironments().find((item) => item.name === profile);
+      return loadEnvironments().find((item) => item.name === environmentName(profile));
     } catch {
       return undefined;
     }

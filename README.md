@@ -127,3 +127,5 @@ Implementation details and safety contracts are documented in [`specs/`](specs/)
 ## License
 
 [MIT](LICENSE)
+
+Profile discovery returns an origin-qualified `selector`: use `env:<name>` for a manual environment or `pgadmin:<id>` for a pgAdmin profile. The UI uses these selectors automatically. Bare names matching a manual environment are rejected so they cannot silently shadow a pgAdmin destination. Selectors for manual environments remain stable when the file is reordered; a removed environment never falls back to pgAdmin.
