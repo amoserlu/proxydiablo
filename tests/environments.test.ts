@@ -157,7 +157,7 @@ describe('rds-iam environments', () => {
     writeFile({ environments: [{ name: 'iam', host, user: 'dev', auth: 'rds-iam', awsProfile: 'cec_developer', database: 'app' }] });
     fakeAws('echo "TOKEN:$*"');
     const connection = await resolveEnvironment('iam', '');
-    expect(connection?.sslmode).toBe('require');
+    expect(connection?.sslmode).toBe('verify-full');
     expect(connection?.password).toBe(
       `TOKEN:rds generate-db-auth-token --hostname ${host} --port 5432 --region eu-west-2 --username dev --profile cec_developer`,
     );
@@ -183,7 +183,7 @@ describe('rds-iam environments', () => {
     writeFile({ environments: [{ name: 'tunnel', host: 'localhost', port: 15432, user: 'dev', auth: 'rds-iam', iamHost: host, iamPort: 5432 }] });
     fakeAws('echo "TOKEN:$*"');
     const connection = await resolveEnvironment('tunnel', 'app');
-    expect(connection).toMatchObject({ host: 'localhost', port: 15432, sslmode: 'require' });
+    expect(connection).toMatchObject({ host: 'localhost', port: 15432, sslmode: 'verify-full' });
     expect(connection?.password).toContain(`--hostname ${host} --port 5432 --region eu-west-2`);
     expect(connection?.password).not.toContain('localhost');
   });
@@ -216,6 +216,13 @@ describe('rds-iam environments', () => {
     writeFile({ environments: [{ name: 'iam', host, user: 'dev', auth: 'rds-iam' }] });
     process.env.PROXYDIABLO_AWS_CLI = path.join(dir, 'no-such-aws');
     await expect(resolveEnvironment('iam', '')).rejects.toThrow('aws CLI was not found');
+  });
+
+  it('rejects insecure IAM settings before invoking AWS', async () => {
+    for (const sslmode of ['disable', 'prefer', 'require', 'verify-ca']) {
+      writeFile({ environments: [{ name:'iam',host,user:'dev',auth:'rds-iam',sslmode }] });
+      expect(() => loadEnvironments()).toThrow('IAM requires sslmode=verify-full');
+    }
   });
 
   it('never asks for a password for IAM environments', () => {

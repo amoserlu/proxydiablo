@@ -107,7 +107,7 @@ Set `engine` to `mysql` for MySQL 8+ or MariaDB servers; everything else (passwo
 
 ### AWS IAM database authentication
 
-For RDS/Aurora databases (PostgreSQL or MySQL) that use IAM auth, set `auth` to `rds-iam` and name the AWS CLI profile. No password is stored anywhere: a fresh token is generated for every connection with `aws rds generate-db-auth-token` and SSL defaults to `require`.
+For RDS/Aurora databases (PostgreSQL or MySQL) that use IAM auth, set `auth` to `rds-iam` and name the AWS CLI profile. No password is stored anywhere: a fresh token is generated for every connection with `aws rds generate-db-auth-token` and TLS requires `verify-full`.
 
 ```json
 {
@@ -169,3 +169,5 @@ Implementation details and safety contracts are documented in [`specs/`](specs/)
 [MIT](LICENSE)
 
 Profile discovery returns an origin-qualified `selector`: use `env:<name>` for a manual environment or `pgadmin:<id>` for a pgAdmin profile. The UI uses these selectors automatically. Bare names matching a manual environment are rejected so they cannot silently shadow a pgAdmin destination. Selectors for manual environments remain stable when the file is reordered; a removed environment never falls back to pgAdmin.
+
+IAM connections require `sslmode: "verify-full"` (the default for IAM). Other IAM SSL modes are rejected before token generation. Set `sslrootcert` to the local path of the trusted RDS CA bundle if it is not in the runtime trust store. Through a tunnel, certificate identity is checked against `iamHost`, not localhost. Non-IAM connections also honor `verify-ca` and `verify-full`. TLS regression tests generate temporary certificates using `openssl`.
