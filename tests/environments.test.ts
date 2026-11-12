@@ -102,7 +102,7 @@ describe('manual environments', () => {
 
   it('resolveConnection serves environments without calling pgAdmin', async () => {
     writeFile({ environments: [{ name: 'dev', host: 'h', user: 'u' }] });
-    await expect(resolveConnection('dev', 'd')).resolves.toMatchObject({ name: 'dev', host: 'h', database: 'd' });
+    await expect(resolveConnection('env:dev', 'd')).resolves.toMatchObject({ name: 'dev', host: 'h', database: 'd' });
   });
 });
 

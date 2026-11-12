@@ -37,7 +37,7 @@ export async function listProfiles(): Promise<ProfileSummary[]> {
   const environments = listEnvironmentProfiles();
   try {
     const data = (await runHelper(['list'])) as { profiles: ProfileSummary[] };
-    return [...environments, ...data.profiles];
+    return [...environments, ...data.profiles.map(profile => ({ ...profile, selector: `pgadmin:${profile.id}` }))];
   } catch (error) {
     // pgAdmin is optional once manual environments exist.
     if (environments.length) return environments;
@@ -46,7 +46,16 @@ export async function listProfiles(): Promise<ProfileSummary[]> {
 }
 
 export async function resolveConnection(profile: string, database: string): Promise<ResolvedConnection> {
+  if (profile.startsWith('pgadmin:')) {
+    const id = profile.slice(8);
+    if (!/^[1-9][0-9]*$/.test(id)) throw new Error('Use a pgadmin:<id> selector from the profile list.');
+    return (await runHelper(['resolve', id, database])) as ResolvedConnection;
+  }
   const environment = await resolveEnvironment(profile, database);
-  if (environment) return environment;
+  if (environment) {
+    if (!profile.startsWith('env:')) throw new Error('Ambiguous profile source. Use the env:<name> or pgadmin:<id> selector from the profile list.');
+    return environment;
+  }
+  if (profile.startsWith('env:')) throw new Error('The selected environment no longer exists. Refresh the profile list.');
   return (await runHelper(['resolve', profile, database])) as ResolvedConnection;
 }
