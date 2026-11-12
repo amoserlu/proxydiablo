@@ -138,7 +138,7 @@ interface CommonActionState {
 function useCommonActions(tab: ProxyTab) {
   const [state, setState] = useState<CommonActionState>({});
   const requiresDouble = tab.classification === 'write' || (tab.proxyType === 'pgsql' && tab.detectedClassification !== 'read');
-  const canRun = !['running', 'released', 'cancelled', 'revision_requested', 'error_sent'].includes(tab.status);
+  const canRun = !['running', 'released', 'cancelled', 'revision_requested', 'error_sent'].includes(tab.status) && !(tab.proxyType === 'pgsql' && tab.requesterDisconnected);
   const canCancel = !['released', 'cancelled', 'revision_requested', 'error_sent'].includes(tab.status);
   const canRelease = tab.status === 'executed' && Boolean(tab.result);
   const canSendError = tab.status === 'error' && Boolean(tab.error);
@@ -530,6 +530,7 @@ function PasswordPrompt({ tab }: { tab: PgsqlTab }) {
 function PgsqlStatus({ tab }: { tab: PgsqlTab; actionError?: string }) {
   return (
     <div className="status-line">
+      {tab.requesterDisconnected && <span className="error-text">Requester disconnected. Execution outcome is preserved here; do not resubmit a write without checking it.</span>}
       <span className={`status-pill ${tab.status}`}><i />{tab.status}</span>
       <span className="kind-label">
         {tab.engine === 'mysql' ? 'MYSQL' : 'PGSQL'} · declared {tab.classification} · detected {tab.detectedClassification}

@@ -26,6 +26,8 @@ export interface EnvironmentEntry {
   auth?: EnvironmentAuth;
   awsProfile?: string;
   region?: string;
+  iamHost?: string;
+  iamPort?: number;
 }
 
 export class AwsLoginRequiredError extends Error {
@@ -42,7 +44,18 @@ export class PasswordRequiredError extends Error {
   }
 }
 
-const sessionPasswords = new Map<string, string>();
+const sessionPasswords = new Map<string, { identity: string; password: string }>();
+
+function connectionIdentity(entry: EnvironmentEntry): string {
+  return JSON.stringify([entry.engine, entry.host, entry.port ?? DEFAULT_PORTS[entry.engine], entry.user, entry.database ?? '', entry.sslmode ?? '', entry.passwordEnv ?? '', entry.password ?? '', entry.auth ?? 'password', entry.iamHost ?? '', entry.iamPort ?? 5432]);
+}
+
+function sessionPassword(entry: EnvironmentEntry): string | undefined {
+  const cached = sessionPasswords.get(entry.name);
+  if (cached?.identity === connectionIdentity(entry)) return cached.password;
+  sessionPasswords.delete(entry.name);
+  return undefined;
+}
 
 export function environmentsPath(): string {
   return process.env.PROXYDIABLO_ENVIRONMENTS ?? path.join(configDirectory, 'environments.json');
@@ -54,7 +67,10 @@ export function loadEnvironments(): EnvironmentEntry[] {
   try {
     raw = fs.readFileSync(file, 'utf8');
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      sessionPasswords.clear();
+      return [];
+    }
     throw new Error(`Cannot read environments file ${file}.`);
   }
   let parsed: unknown;
@@ -66,12 +82,18 @@ export function loadEnvironments(): EnvironmentEntry[] {
   const list = (parsed as { environments?: unknown })?.environments;
   if (!Array.isArray(list)) throw new Error(`Environments file ${file} must contain an "environments" array.`);
   const seen = new Set<string>();
-  return list.map((item, index) => {
+  const entries = list.map((item, index) => {
     const entry = parseEntry(item, index);
     if (seen.has(entry.name)) throw new Error(`Environments file has a duplicate name "${entry.name}".`);
     seen.add(entry.name);
     return entry;
   });
+  for (const name of sessionPasswords.keys()) {
+    const entry = entries.find(item => item.name === name);
+    if (!entry) sessionPasswords.delete(name);
+    else sessionPassword(entry);
+  }
+  return entries;
 }
 
 function parseEntry(item: unknown, index: number): EnvironmentEntry {
@@ -90,6 +112,10 @@ function parseEntry(item: unknown, index: number): EnvironmentEntry {
   if (port !== undefined && (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535)) {
     throw new Error(`${where}.port must be an integer between 1 and 65535.`);
   }
+  const iamPort = record.iamPort;
+  if (iamPort !== undefined && (typeof iamPort !== 'number' || !Number.isInteger(iamPort) || iamPort < 1 || iamPort > 65535)) {
+    throw new Error(`${where}.iamPort must be an integer between 1 and 65535.`);
+  }
   const auth = (text('auth', false) ?? 'password') as EnvironmentAuth;
   if (auth !== 'password' && auth !== 'rds-iam') throw new Error(`${where}.auth must be "password" or "rds-iam".`);
   const engine = (text('engine', false) ?? 'postgresql') as DatabaseEngine;
@@ -107,10 +133,12 @@ function parseEntry(item: unknown, index: number): EnvironmentEntry {
     auth,
     awsProfile: text('awsProfile', false),
     region: text('region', false),
+    iamHost: text('iamHost', false),
+    iamPort: iamPort as number | undefined,
   };
   if (auth === 'rds-iam') {
     if (entry.password || entry.passwordEnv) throw new Error(`${where}: rds-iam environments cannot define a password.`);
-    if (!entry.region && !regionFromHost(entry.host)) {
+    if (!entry.region && !regionFromHost(entry.iamHost ?? entry.host)) {
       throw new Error(`${where}.region is required (it could not be derived from the host).`);
     }
   }
@@ -139,9 +167,10 @@ export function profileEngine(name: string): DatabaseEngine {
 }
 
 export function setSessionPassword(name: string, password: string): void {
-  if (!loadEnvironments().some((entry) => entry.name === name)) throw new Error(`Unknown environment "${name}".`);
+  const entry = loadEnvironments().find((entry) => entry.name === name);
+  if (!entry) throw new Error(`Unknown environment "${name}".`);
   if (!password) throw new Error('A password is required.');
-  sessionPasswords.set(name, password);
+  sessionPasswords.set(name, { identity: connectionIdentity(entry), password });
 }
 
 export function clearSessionPasswords(): void {
@@ -199,11 +228,11 @@ export function ssoLoginProfile(profile: string | undefined): string | undefined
 }
 
 async function mintIamToken(entry: EnvironmentEntry): Promise<string> {
-  const region = entry.region ?? regionFromHost(entry.host)!;
+  const region = entry.region ?? regionFromHost(entry.iamHost ?? entry.host)!;
   const args = [
     'rds', 'generate-db-auth-token',
-    '--hostname', entry.host,
-    '--port', String(entry.port ?? DEFAULT_PORTS[entry.engine]),
+    '--hostname', entry.iamHost ?? entry.host,
+    '--port', String(entry.iamPort ?? (entry.iamHost ? DEFAULT_PORTS[entry.engine] : entry.port ?? DEFAULT_PORTS[entry.engine])),
     '--region', region,
     '--username', entry.user,
     ...(entry.awsProfile ? ['--profile', entry.awsProfile] : []),
@@ -237,7 +266,7 @@ export async function resolveEnvironment(profile: string, database: string): Pro
   const iam = entry.auth === 'rds-iam';
   const password = iam
     ? await mintIamToken(entry)
-    : sessionPasswords.get(entry.name) ??
+    : sessionPassword(entry) ??
       (entry.passwordEnv ? process.env[entry.passwordEnv] : undefined) ??
       entry.password;
   return {
@@ -270,7 +299,7 @@ export function passwordPromptReason(profile: string, error: unknown): 'missing'
   if (!entry || entry.auth === 'rds-iam') return undefined;
   const message = error instanceof Error ? error.message : String(error);
   const code = (error as { code?: unknown })?.code;
-  if (code !== '28P01' && code !== 'ER_ACCESS_DENIED_ERROR' && !/password/i.test(message)) return undefined;
+  if (code !== '28P01' && code !== 'ER_ACCESS_DENIED_ERROR' && !/^SASL: .*client password must be a (?:string|non-empty string)$/i.test(message)) return undefined;
   if (sessionPasswords.has(entry.name)) {
     sessionPasswords.delete(entry.name);
     return 'rejected';

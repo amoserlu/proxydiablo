@@ -81,6 +81,7 @@ export interface PgsqlTab extends BaseProxyTab {
   /** Columns no filter rule matches but this tab hides anyway. */
   filterHiddenColumns?: string[];
   passwordRequiredFor?: string;
+  requesterDisconnected?: boolean;
 }
 
 export interface CommandResult {
