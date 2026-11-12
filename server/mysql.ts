@@ -1,5 +1,5 @@
 import mysql from 'mysql2/promise';
-import type { FieldPacket } from 'mysql2';
+import type { ExecuteValues, FieldPacket } from 'mysql2';
 import type { InspectRequest, InspectResult, QueryResult } from '../src/shared/types.js';
 import type { ResolvedConnection } from './pgadmin.js';
 
@@ -21,7 +21,7 @@ export async function runMysqlQuery(
     ssl: conn.sslmode && conn.sslmode !== 'disable' ? { rejectUnauthorized: false } : undefined,
     connectTimeout: conn.connect_timeout ? Number(conn.connect_timeout) * 1000 : 15000,
     // Reviewed scripts may chain setup statements before the query, as they can with PostgreSQL.
-    multipleStatements: true,
+    multipleStatements: params.length === 0,
     // Return values as stored instead of converting them through the local timezone or a JS number.
     dateStrings: true,
     supportBigNumbers: true,
@@ -30,7 +30,9 @@ export async function runMysqlQuery(
     enableCleartextPlugin: conn.auth === 'rds-iam',
   });
 
-  const execute = () => (params.length ? connection.query(sql, params) : connection.query(sql));
+  // Introspection binds values on the server: text interpolation is unsafe under
+  // NO_BACKSLASH_ESCAPES. Reviewed scripts without parameters keep multi-statement support.
+  const execute = () => (params.length ? connection.execute(sql, params as ExecuteValues) : connection.query(sql));
   try {
     if (readOnly) {
       // The session setting keeps statements read-only even if something ends the transaction early.

@@ -171,6 +171,14 @@ describe('rds-iam environments', () => {
     expect(connection?.password).toContain('--port 3306');
   });
 
+  it('uses the MySQL signing port independently of a forwarded local port', async () => {
+    writeFile({ environments: [{ name: 'tunnel', engine: 'mysql', host: 'localhost', port: 13306, user: 'dev', auth: 'rds-iam', iamHost: host }] });
+    fakeAws('echo "TOKEN:$*"');
+    const connection = await resolveEnvironment('tunnel', 'app');
+    expect(connection).toMatchObject({ host: 'localhost', port: 13306 });
+    expect(connection?.password).toContain(`--hostname ${host} --port 3306 --region eu-west-2`);
+  });
+
   it('signs a tunnel token for the real endpoint while connecting through the local port', async () => {
     writeFile({ environments: [{ name: 'tunnel', host: 'localhost', port: 15432, user: 'dev', auth: 'rds-iam', iamHost: host, iamPort: 5432 }] });
     fakeAws('echo "TOKEN:$*"');
