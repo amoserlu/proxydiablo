@@ -99,7 +99,9 @@ For RDS/Aurora databases that use IAM auth, set `auth` to `rds-iam` and name the
 }
 ```
 
-`region` is derived from RDS hostnames and is required for other hosts (for example a tunnel to `localhost`). Role chains (`role_arn`, `source_profile`, `external_id`) and SSO sessions are handled by the AWS CLI through the profile. When the session has expired the error names the profile to log in with, for example `aws sso login --profile aircury_cec_developer`. Requires AWS CLI v2 (`PROXYDIABLO_AWS_CLI` overrides the executable).
+`region` is derived from `iamHost` (when present) or `host`, and is required when it cannot be derived. For a tunnel, keep `host`/`port` as the local transport address and set `iamHost`/`iamPort` to the real RDS endpoint and database port. For example, use `host: "localhost", port: 15432, iamHost: "db.abc.eu-west-2.rds.amazonaws.com", iamPort: 5432`. When `iamHost` is set, `iamPort` defaults to 5432; otherwise it defaults to the connection port. The token must be signed for the real database endpoint, never the local tunnel address.
+
+Role chains (`role_arn`, `source_profile`, `external_id`) and SSO sessions are handled by the AWS CLI through the profile. When the session has expired the error names the profile to log in with, for example `aws sso login --profile aircury_cec_developer`. Requires AWS CLI v2 (`PROXYDIABLO_AWS_CLI` overrides the executable).
 
 ## Usage
 

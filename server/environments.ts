@@ -23,6 +23,8 @@ export interface EnvironmentEntry {
   auth?: EnvironmentAuth;
   awsProfile?: string;
   region?: string;
+  iamHost?: string;
+  iamPort?: number;
 }
 
 export class AwsLoginRequiredError extends Error {
@@ -42,7 +44,7 @@ export class PasswordRequiredError extends Error {
 const sessionPasswords = new Map<string, { identity: string; password: string }>();
 
 function connectionIdentity(entry: EnvironmentEntry): string {
-  return JSON.stringify([entry.host, entry.port ?? 5432, entry.user, entry.database ?? '', entry.sslmode ?? '', entry.passwordEnv ?? '', entry.password ?? '']);
+  return JSON.stringify([entry.host, entry.port ?? 5432, entry.user, entry.database ?? '', entry.sslmode ?? '', entry.passwordEnv ?? '', entry.password ?? '', entry.auth ?? 'password', entry.iamHost ?? '', entry.iamPort ?? 5432]);
 }
 
 function sessionPassword(entry: EnvironmentEntry): string | undefined {
@@ -107,6 +109,10 @@ function parseEntry(item: unknown, index: number): EnvironmentEntry {
   if (port !== undefined && (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535)) {
     throw new Error(`${where}.port must be an integer between 1 and 65535.`);
   }
+  const iamPort = record.iamPort;
+  if (iamPort !== undefined && (typeof iamPort !== 'number' || !Number.isInteger(iamPort) || iamPort < 1 || iamPort > 65535)) {
+    throw new Error(`${where}.iamPort must be an integer between 1 and 65535.`);
+  }
   const auth = (text('auth', false) ?? 'password') as EnvironmentAuth;
   if (auth !== 'password' && auth !== 'rds-iam') throw new Error(`${where}.auth must be "password" or "rds-iam".`);
   const entry: EnvironmentEntry = {
@@ -121,10 +127,12 @@ function parseEntry(item: unknown, index: number): EnvironmentEntry {
     auth,
     awsProfile: text('awsProfile', false),
     region: text('region', false),
+    iamHost: text('iamHost', false),
+    iamPort: iamPort as number | undefined,
   };
   if (auth === 'rds-iam') {
     if (entry.password || entry.passwordEnv) throw new Error(`${where}: rds-iam environments cannot define a password.`);
-    if (!entry.region && !regionFromHost(entry.host)) {
+    if (!entry.region && !regionFromHost(entry.iamHost ?? entry.host)) {
       throw new Error(`${where}.region is required (it could not be derived from the host).`);
     }
   }
@@ -204,11 +212,11 @@ export function ssoLoginProfile(profile: string | undefined): string | undefined
 }
 
 async function mintIamToken(entry: EnvironmentEntry): Promise<string> {
-  const region = entry.region ?? regionFromHost(entry.host)!;
+  const region = entry.region ?? regionFromHost(entry.iamHost ?? entry.host)!;
   const args = [
     'rds', 'generate-db-auth-token',
-    '--hostname', entry.host,
-    '--port', String(entry.port ?? 5432),
+    '--hostname', entry.iamHost ?? entry.host,
+    '--port', String(entry.iamPort ?? (entry.iamHost ? 5432 : entry.port ?? 5432)),
     '--region', region,
     '--username', entry.user,
     ...(entry.awsProfile ? ['--profile', entry.awsProfile] : []),

@@ -145,6 +145,30 @@ describe('rds-iam environments', () => {
     );
   });
 
+  it('signs a tunnel token for the real endpoint while connecting through the local port', async () => {
+    writeFile({ environments: [{ name: 'tunnel', host: 'localhost', port: 15432, user: 'dev', auth: 'rds-iam', iamHost: host, iamPort: 5432 }] });
+    fakeAws('echo "TOKEN:$*"');
+    const connection = await resolveEnvironment('tunnel', 'app');
+    expect(connection).toMatchObject({ host: 'localhost', port: 15432, sslmode: 'require' });
+    expect(connection?.password).toContain(`--hostname ${host} --port 5432 --region eu-west-2`);
+    expect(connection?.password).not.toContain('localhost');
+  });
+
+  it('defaults signing port independently of a tunnel and permits an explicit RDS port', async () => {
+    fakeAws('echo "TOKEN:$*"');
+    for (const [iamPort, expected] of [[undefined, 5432], [6432, 6432]]) {
+      writeFile({ environments: [{ name: 'tunnel', host: 'localhost', port: 15432, user: 'dev', auth: 'rds-iam', iamHost: host, iamPort }] });
+      expect((await resolveEnvironment('tunnel', 'app'))?.password).toContain(`--port ${expected}`);
+    }
+  });
+
+  it('rejects invalid signing ports', () => {
+    for (const iamPort of [0, 65536, '5432', 1.5]) {
+      writeFile({ environments: [{ name: 'tunnel', host, user: 'dev', auth: 'rds-iam', iamPort }] });
+      expect(() => loadEnvironments()).toThrow('iamPort');
+    }
+  });
+
   it('tells the user which profile to log in with when the SSO session expired', async () => {
     writeFile({ environments: [{ name: 'iam', host, user: 'dev', auth: 'rds-iam', awsProfile: 'cec_developer' }] });
     const config = path.join(dir, 'aws-config');
