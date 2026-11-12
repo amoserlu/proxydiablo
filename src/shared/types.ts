@@ -19,6 +19,7 @@ export type DatabaseEngine = 'postgresql' | 'mysql';
 export interface ProfileSummary {
   id: number;
   name: string;
+  selector?: string;
   host?: string;
   port?: number;
   username?: string;

@@ -312,7 +312,7 @@ function PgsqlPane({
   const filteredColumns = new Set(tab.filtered?.filteredColumns ?? []);
   const filterExemptColumns = new Set((tab.filterExemptColumns ?? []).map((column) => column.toLowerCase()));
   const connectionMissing = !tab.profile.trim() || !tab.database.trim() || !tab.sql.trim();
-  const currentProfileExists = profiles.some((profile) => profile.name === tab.profile);
+  const currentProfileExists = profiles.some((profile) => (profile.selector ?? profile.name) === tab.profile);
 
   return (
     <section className="query-pane">
@@ -322,7 +322,7 @@ function PgsqlPane({
           <select
             value={tab.profile}
             onChange={(event) => {
-              const profile = profiles.find((item) => item.name === event.target.value);
+              const profile = profiles.find((item) => (item.selector ?? item.name) === event.target.value);
               const fallbackDatabase = profile?.engine === 'mysql' ? '' : 'postgres';
               void api.updateConnection(tab.id, event.target.value, tab.database || profile?.maintenanceDb || fallbackDatabase);
             }}
@@ -330,7 +330,7 @@ function PgsqlPane({
             <option value="">Select profile or environment</option>
             {tab.profile && !currentProfileExists && <option value={tab.profile}>{tab.profile}</option>}
             {profiles.map((profile) => (
-              <option key={profile.id} value={profile.name}>
+              <option key={profile.selector ?? profile.id} value={profile.selector ?? profile.name}>
                 {profile.name}{profile.username ? ` · ${profile.username}` : ''}{profile.host ? ` @ ${profile.host}` : ''}
                 {profile.engine === 'mysql' ? ' · MySQL' : ''}
               </option>
