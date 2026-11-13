@@ -5,6 +5,12 @@ while the project is pre-1.0, a minor version may include documented compatibili
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-13
+
+### Fixed
+- Initialize the release test configuration directory inside a runner step. GitHub rejected the initial workflow because the runner context is unavailable in job-level environment declarations.
+- No application behavior changes from v0.2.0. The v0.2.0 source passed local validation and was published manually; this patch validates automatic publication.
+
 ## [0.2.0] - 2026-11-13
 
 ### Added
@@ -40,6 +46,7 @@ Retrospective baseline for commit `adf24f3`; the GitHub release was published on
 - Multiple request tabs, editable requests before approval, and cancellation with revision feedback.
 - Installable Codex skill and installation documentation.
 
-[Unreleased]: https://github.com/amoserlu/proxydiablo/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/amoserlu/proxydiablo/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/amoserlu/proxydiablo/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/amoserlu/proxydiablo/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/amoserlu/proxydiablo/tree/v0.1.0

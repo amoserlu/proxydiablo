@@ -22,7 +22,6 @@ jobs:
           --health-timeout=5s
           --health-retries=12
     env:
-      XDG_CONFIG_HOME: ${{ runner.temp }}/proxydiablo-test-config
       PROXYDIABLO_TEST_MYSQL_PORT: '3306'
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +29,7 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      - run: echo "XDG_CONFIG_HOME=$RUNNER_TEMP/proxydiablo-test-config" >> "$GITHUB_ENV"
       - run: npm ci
       - run: node scripts/release-notes.mjs "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-notes.md"
       - run: npm run typecheck
