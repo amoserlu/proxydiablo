@@ -7,6 +7,7 @@ import {
   listEnvironmentProfiles,
   loadEnvironments,
   passwordPromptReason,
+  regionFromHost,
   resolveEnvironment,
   setSessionPassword,
   watchEnvironments,
@@ -55,24 +56,24 @@ describe('manual environments', () => {
     expect(() => loadEnvironments()).toThrow('duplicate');
   });
 
-  it('returns undefined for unknown names so pgAdmin can handle them', () => {
+  it('returns undefined for unknown names so pgAdmin can handle them', async () => {
     writeFile({ environments: [] });
-    expect(resolveEnvironment('prod', 'app')).toBeUndefined();
+    expect(await resolveEnvironment('prod', 'app')).toBeUndefined();
   });
 
-  it('uses the requested database, falling back to the environment default', () => {
+  it('uses the requested database, falling back to the environment default', async () => {
     writeFile({ environments: [{ name: 'dev', host: 'h', user: 'u', database: 'main' }] });
-    expect(resolveEnvironment('dev', 'other')?.database).toBe('other');
-    expect(resolveEnvironment('dev', '')?.database).toBe('main');
+    expect((await resolveEnvironment('dev', 'other'))?.database).toBe('other');
+    expect((await resolveEnvironment('dev', ''))?.database).toBe('main');
   });
 
-  it('prefers session password, then passwordEnv, then the file password', () => {
+  it('prefers session password, then passwordEnv, then the file password', async () => {
     writeFile({ environments: [{ name: 'dev', host: 'h', user: 'u', password: 'from-file', passwordEnv: 'DIABLO_TEST_PASSWORD' }] });
-    expect(resolveEnvironment('dev', 'd')?.password).toBe('from-file');
+    expect((await resolveEnvironment('dev', 'd'))?.password).toBe('from-file');
     process.env.DIABLO_TEST_PASSWORD = 'from-env';
-    expect(resolveEnvironment('dev', 'd')?.password).toBe('from-env');
+    expect((await resolveEnvironment('dev', 'd'))?.password).toBe('from-env');
     setSessionPassword('dev', 'from-session');
-    expect(resolveEnvironment('dev', 'd')?.password).toBe('from-session');
+    expect((await resolveEnvironment('dev', 'd'))?.password).toBe('from-session');
   });
 
   it('refuses a session password for an unknown environment', () => {
@@ -102,6 +103,97 @@ describe('manual environments', () => {
   it('resolveConnection serves environments without calling pgAdmin', async () => {
     writeFile({ environments: [{ name: 'dev', host: 'h', user: 'u' }] });
     await expect(resolveConnection('env:dev', 'd')).resolves.toMatchObject({ name: 'dev', host: 'h', database: 'd' });
+  });
+});
+
+describe('rds-iam environments', () => {
+  const host = 'db.cluster-abc123.eu-west-2.rds.amazonaws.com';
+
+  function fakeAws(script: string): string {
+    const file = path.join(dir, 'aws');
+    fs.writeFileSync(file, `#!/usr/bin/env bash\n${script}\n`, { mode: 0o755 });
+    process.env.PROXYDIABLO_AWS_CLI = file;
+    return file;
+  }
+
+  afterEach(() => {
+    delete process.env.PROXYDIABLO_AWS_CLI;
+    delete process.env.AWS_CONFIG_FILE;
+  });
+
+  it('derives the region from an RDS hostname', () => {
+    expect(regionFromHost(host)).toBe('eu-west-2');
+    expect(regionFromHost('localhost')).toBeUndefined();
+  });
+
+  it('requires a region when it cannot be derived and forbids passwords', () => {
+    writeFile({ environments: [{ name: 'i', host: 'localhost', user: 'u', auth: 'rds-iam' }] });
+    expect(() => loadEnvironments()).toThrow('region is required');
+    writeFile({ environments: [{ name: 'i', host, user: 'u', auth: 'rds-iam', password: 'x' }] });
+    expect(() => loadEnvironments()).toThrow('cannot define a password');
+    writeFile({ environments: [{ name: 'i', host, user: 'u', auth: 'magic' }] });
+    expect(() => loadEnvironments()).toThrow('auth must be');
+  });
+
+  it('mints a token with the aws CLI and forces SSL', async () => {
+    writeFile({ environments: [{ name: 'iam', host, user: 'dev', auth: 'rds-iam', awsProfile: 'cec_developer', database: 'app' }] });
+    fakeAws('echo "TOKEN:$*"');
+    const connection = await resolveEnvironment('iam', '');
+    expect(connection?.sslmode).toBe('verify-full');
+    expect(connection?.password).toBe(
+      `TOKEN:rds generate-db-auth-token --hostname ${host} --port 5432 --region eu-west-2 --username dev --profile cec_developer`,
+    );
+  });
+
+  it('signs a tunnel token for the real endpoint while connecting through the local port', async () => {
+    writeFile({ environments: [{ name: 'tunnel', host: 'localhost', port: 15432, user: 'dev', auth: 'rds-iam', iamHost: host, iamPort: 5432 }] });
+    fakeAws('echo "TOKEN:$*"');
+    const connection = await resolveEnvironment('tunnel', 'app');
+    expect(connection).toMatchObject({ host: 'localhost', port: 15432, sslmode: 'verify-full' });
+    expect(connection?.password).toContain(`--hostname ${host} --port 5432 --region eu-west-2`);
+    expect(connection?.password).not.toContain('localhost');
+  });
+
+  it('defaults signing port independently of a tunnel and permits an explicit RDS port', async () => {
+    fakeAws('echo "TOKEN:$*"');
+    for (const [iamPort, expected] of [[undefined, 5432], [6432, 6432]]) {
+      writeFile({ environments: [{ name: 'tunnel', host: 'localhost', port: 15432, user: 'dev', auth: 'rds-iam', iamHost: host, iamPort }] });
+      expect((await resolveEnvironment('tunnel', 'app'))?.password).toContain(`--port ${expected}`);
+    }
+  });
+
+  it('rejects invalid signing ports', () => {
+    for (const iamPort of [0, 65536, '5432', 1.5]) {
+      writeFile({ environments: [{ name: 'tunnel', host, user: 'dev', auth: 'rds-iam', iamPort }] });
+      expect(() => loadEnvironments()).toThrow('iamPort');
+    }
+  });
+
+  it('tells the user which profile to log in with when the SSO session expired', async () => {
+    writeFile({ environments: [{ name: 'iam', host, user: 'dev', auth: 'rds-iam', awsProfile: 'cec_developer' }] });
+    const config = path.join(dir, 'aws-config');
+    fs.writeFileSync(config, '[profile aircury_cec_developer]\nsso_session=Aircury\n\n[profile cec_developer]\nsource_profile=aircury_cec_developer\n');
+    process.env.AWS_CONFIG_FILE = config;
+    fakeAws('echo "Error loading SSO Token: Token for x does not exist" >&2; exit 255');
+    await expect(resolveEnvironment('iam', '')).rejects.toThrow('aws sso login --profile aircury_cec_developer');
+  });
+
+  it('explains a missing aws CLI', async () => {
+    writeFile({ environments: [{ name: 'iam', host, user: 'dev', auth: 'rds-iam' }] });
+    process.env.PROXYDIABLO_AWS_CLI = path.join(dir, 'no-such-aws');
+    await expect(resolveEnvironment('iam', '')).rejects.toThrow('aws CLI was not found');
+  });
+
+  it('rejects insecure IAM settings before invoking AWS', async () => {
+    for (const sslmode of ['disable', 'prefer', 'require', 'verify-ca']) {
+      writeFile({ environments: [{ name:'iam',host,user:'dev',auth:'rds-iam',sslmode }] });
+      expect(() => loadEnvironments()).toThrow('IAM requires sslmode=verify-full');
+    }
+  });
+
+  it('never asks for a password for IAM environments', () => {
+    writeFile({ environments: [{ name: 'iam', host, user: 'dev', auth: 'rds-iam' }] });
+    expect(passwordPromptReason('iam', new Error('client password must be a string'))).toBeUndefined();
   });
 });
 

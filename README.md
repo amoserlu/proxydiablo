@@ -84,6 +84,25 @@ Besides pgAdmin profiles, Proxy Diablo reads PostgreSQL environments from a JSON
 
 Password resolution order: a password typed in the UI for this session, the variable named by `passwordEnv`, the `password` field, then the standard `PGPASSWORD` / `~/.pgpass` lookup. If the server rejects the connection for lack of a password, the tab asks for one in the UI. It is kept in memory only and never written to disk. Prefer `passwordEnv` or the UI prompt over `password`.
 
+### AWS IAM database authentication
+
+For RDS/Aurora databases that use IAM auth, set `auth` to `rds-iam` and name the AWS CLI profile. No password is stored anywhere: a fresh token is generated for every connection with `aws rds generate-db-auth-token` and TLS requires `verify-full`.
+
+```json
+{
+  "name": "cec-prod",
+  "host": "cec-prod.cryqwkvystyi.eu-west-2.rds.amazonaws.com",
+  "database": "cec",
+  "user": "my.name@example.com",
+  "auth": "rds-iam",
+  "awsProfile": "cec_developer"
+}
+```
+
+`region` is derived from `iamHost` (when present) or `host`, and is required when it cannot be derived. For a tunnel, keep `host`/`port` as the local transport address and set `iamHost`/`iamPort` to the real RDS endpoint and database port. For example, use `host: "localhost", port: 15432, iamHost: "db.abc.eu-west-2.rds.amazonaws.com", iamPort: 5432`. When `iamHost` is set, `iamPort` defaults to 5432; otherwise it defaults to the connection port. The token must be signed for the real database endpoint, never the local tunnel address.
+
+Role chains (`role_arn`, `source_profile`, `external_id`) and SSO sessions are handled by the AWS CLI through the profile. When the session has expired the error names the profile to log in with, for example `aws sso login --profile aircury_cec_developer`. Requires AWS CLI v2 (`PROXYDIABLO_AWS_CLI` overrides the executable).
+
 ## Usage
 
 Run a supervised local command:
@@ -129,3 +148,5 @@ Implementation details and safety contracts are documented in [`specs/`](specs/)
 [MIT](LICENSE)
 
 Profile discovery returns an origin-qualified `selector`: use `env:<name>` for a manual environment or `pgadmin:<id>` for a pgAdmin profile. The UI uses these selectors automatically. Bare names matching a manual environment are rejected so they cannot silently shadow a pgAdmin destination. Selectors for manual environments remain stable when the file is reordered; a removed environment never falls back to pgAdmin.
+
+IAM connections require `sslmode: "verify-full"` (the default for IAM). Other IAM SSL modes are rejected before token generation. Set `sslrootcert` to the local path of the trusted RDS CA bundle if it is not in the runtime trust store. Through a tunnel, certificate identity is checked against `iamHost`, not localhost. Non-IAM connections also honor `verify-ca` and `verify-full`. TLS regression tests generate temporary certificates using `openssl`.

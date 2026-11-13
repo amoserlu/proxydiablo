@@ -1,9 +1,16 @@
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import type { ProfileSummary } from '../src/shared/types.js';
 import { environmentName } from '../src/shared/profileSelectors.js';
 import { configDirectory } from './paths.js';
 import type { ResolvedConnection } from './pgadmin.js';
+
+const execFileAsync = promisify(execFile);
+
+export type EnvironmentAuth = 'password' | 'rds-iam';
 
 export interface EnvironmentEntry {
   name: string;
@@ -14,6 +21,19 @@ export interface EnvironmentEntry {
   password?: string;
   passwordEnv?: string;
   sslmode?: string;
+  sslrootcert?: string;
+  auth?: EnvironmentAuth;
+  awsProfile?: string;
+  region?: string;
+  iamHost?: string;
+  iamPort?: number;
+}
+
+export class AwsLoginRequiredError extends Error {
+  constructor(readonly environment: string, detail: string) {
+    super(`AWS credentials for environment "${environment}" are not usable. ${detail}`);
+    this.name = 'AwsLoginRequiredError';
+  }
 }
 
 export class PasswordRequiredError extends Error {
@@ -26,7 +46,7 @@ export class PasswordRequiredError extends Error {
 const sessionPasswords = new Map<string, { identity: string; password: string }>();
 
 function connectionIdentity(entry: EnvironmentEntry): string {
-  return JSON.stringify([entry.host, entry.port ?? 5432, entry.user, entry.database ?? '', entry.sslmode ?? '', entry.passwordEnv ?? '', entry.password ?? '']);
+  return JSON.stringify([entry.host, entry.port ?? 5432, entry.user, entry.database ?? '', entry.sslmode ?? '', entry.sslrootcert ?? '', entry.passwordEnv ?? '', entry.password ?? '', entry.auth ?? 'password', entry.iamHost ?? '', entry.iamPort ?? 5432]);
 }
 
 function sessionPassword(entry: EnvironmentEntry): string | undefined {
@@ -91,7 +111,13 @@ function parseEntry(item: unknown, index: number): EnvironmentEntry {
   if (port !== undefined && (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535)) {
     throw new Error(`${where}.port must be an integer between 1 and 65535.`);
   }
-  return {
+  const iamPort = record.iamPort;
+  if (iamPort !== undefined && (typeof iamPort !== 'number' || !Number.isInteger(iamPort) || iamPort < 1 || iamPort > 65535)) {
+    throw new Error(`${where}.iamPort must be an integer between 1 and 65535.`);
+  }
+  const auth = (text('auth', false) ?? 'password') as EnvironmentAuth;
+  if (auth !== 'password' && auth !== 'rds-iam') throw new Error(`${where}.auth must be "password" or "rds-iam".`);
+  const entry: EnvironmentEntry = {
     name: text('name', true)!,
     host: text('host', true)!,
     port: port as number | undefined,
@@ -100,7 +126,21 @@ function parseEntry(item: unknown, index: number): EnvironmentEntry {
     password: text('password', false),
     passwordEnv: text('passwordEnv', false),
     sslmode: text('sslmode', false),
+    sslrootcert: text('sslrootcert', false),
+    auth,
+    awsProfile: text('awsProfile', false),
+    region: text('region', false),
+    iamHost: text('iamHost', false),
+    iamPort: iamPort as number | undefined,
   };
+  if (auth === 'rds-iam') {
+    if (entry.sslmode && entry.sslmode !== 'verify-full') throw new Error(`${where}: IAM requires sslmode=verify-full.`);
+    if (entry.password || entry.passwordEnv) throw new Error(`${where}: rds-iam environments cannot define a password.`);
+    if (!entry.region && !regionFromHost(entry.iamHost ?? entry.host)) {
+      throw new Error(`${where}.region is required (it could not be derived from the host).`);
+    }
+  }
+  return entry;
 }
 
 export function listEnvironmentProfiles(): ProfileSummary[] {
@@ -134,16 +174,90 @@ export function isEnvironmentName(name: string): boolean {
   }
 }
 
+/** RDS and Aurora hostnames embed their region: <id>.<hash>.<region>.rds.amazonaws.com */
+export function regionFromHost(host: string): string | undefined {
+  return host.match(/\.([a-z]{2}(?:-[a-z]+)+-\d)\.rds\.amazonaws\.com(?:\.cn)?$/)?.[1];
+}
+
+function awsCli(): string {
+  return process.env.PROXYDIABLO_AWS_CLI ?? 'aws';
+}
+
+/** Follows source_profile links in ~/.aws/config to the profile that owns the SSO session. */
+export function ssoLoginProfile(profile: string | undefined): string | undefined {
+  if (!profile) return undefined;
+  const configFile = process.env.AWS_CONFIG_FILE ?? path.join(os.homedir(), '.aws', 'config');
+  let text: string;
+  try {
+    text = fs.readFileSync(configFile, 'utf8');
+  } catch {
+    return undefined;
+  }
+  const sections = new Map<string, Record<string, string>>();
+  let current: Record<string, string> | undefined;
+  for (const line of text.split(/\r?\n/)) {
+    const header = line.match(/^\s*\[(?:profile\s+)?([^\]]+)\]\s*$/);
+    if (header) {
+      current = {};
+      sections.set(header[1].trim(), current);
+      continue;
+    }
+    const pair = line.match(/^\s*([A-Za-z_]+)\s*=\s*(.*?)\s*$/);
+    if (pair && current) current[pair[1]] = pair[2];
+  }
+  let name = profile;
+  for (let hops = 0; hops < 5; hops += 1) {
+    const section = sections.get(name);
+    if (!section) return undefined;
+    if (section.sso_session || section.sso_start_url) return name;
+    if (!section.source_profile) return undefined;
+    name = section.source_profile;
+  }
+  return undefined;
+}
+
+async function mintIamToken(entry: EnvironmentEntry): Promise<string> {
+  const region = entry.region ?? regionFromHost(entry.iamHost ?? entry.host)!;
+  const args = [
+    'rds', 'generate-db-auth-token',
+    '--hostname', entry.iamHost ?? entry.host,
+    '--port', String(entry.iamPort ?? (entry.iamHost ? 5432 : entry.port ?? 5432)),
+    '--region', region,
+    '--username', entry.user,
+    ...(entry.awsProfile ? ['--profile', entry.awsProfile] : []),
+  ];
+  try {
+    const { stdout } = await execFileAsync(awsCli(), args, { timeout: 30_000, maxBuffer: 1024 * 1024 });
+    const token = stdout.trim();
+    if (!token) throw new Error('empty token');
+    return token;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      throw new AwsLoginRequiredError(entry.name, 'The aws CLI was not found; install AWS CLI v2 and make sure it is on PATH.');
+    }
+    const stderr = String((error as { stderr?: unknown }).stderr ?? '');
+    const login = ssoLoginProfile(entry.awsProfile);
+    if (/sso|token|expired|credentials|login/i.test(stderr)) {
+      const command = login ? `aws sso login --profile ${login}` : 'aws sso login';
+      throw new AwsLoginRequiredError(entry.name, `Run \`${command}\` in this shell environment and retry.`);
+    }
+    throw new AwsLoginRequiredError(entry.name, 'The aws CLI could not generate a database token (check awsProfile, region and permissions).');
+  }
+}
+
 /** Returns undefined when `profile` is not a manual environment, so the caller can fall back to pgAdmin. */
-export function resolveEnvironment(profile: string, database: string): ResolvedConnection | undefined {
+export async function resolveEnvironment(profile: string, database: string): Promise<ResolvedConnection | undefined> {
   const entries = loadEnvironments();
   const index = entries.findIndex((entry) => entry.name === environmentName(profile));
   if (index < 0) return undefined;
   const entry = entries[index];
-  const password =
-    sessionPassword(entry) ??
-    (entry.passwordEnv ? process.env[entry.passwordEnv] : undefined) ??
-    entry.password;
+  const iam = entry.auth === 'rds-iam';
+  const password = iam
+    ? await mintIamToken(entry)
+    : sessionPassword(entry) ??
+      (entry.passwordEnv ? process.env[entry.passwordEnv] : undefined) ??
+      entry.password;
   return {
     id: -(index + 1),
     name: entry.name,
@@ -152,7 +266,10 @@ export function resolveEnvironment(profile: string, database: string): ResolvedC
     database: database || entry.database || '',
     user: entry.user,
     password,
-    sslmode: entry.sslmode,
+    sslmode: iam ? 'verify-full' : entry.sslmode,
+    sslrootcert: entry.sslrootcert,
+    tlsServerName: iam ? entry.iamHost ?? entry.host : undefined,
+    auth: entry.auth,
   };
 }
 
@@ -169,7 +286,7 @@ export function passwordPromptReason(profile: string, error: unknown): 'missing'
       return undefined;
     }
   })();
-  if (!entry) return undefined;
+  if (!entry || entry.auth === 'rds-iam') return undefined;
   const message = error instanceof Error ? error.message : String(error);
   const code = (error as { code?: unknown })?.code;
   if (code !== '28P01' && !/^SASL: .*client password must be a (?:string|non-empty string)$/i.test(message)) return undefined;

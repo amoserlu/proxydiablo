@@ -16,6 +16,9 @@ export interface ResolvedConnection {
   user?: string;
   password?: string;
   sslmode?: string;
+  sslrootcert?: string;
+  tlsServerName?: string;
+  auth?: 'password' | 'rds-iam';
   connect_timeout?: string;
   service?: string;
 }
@@ -51,7 +54,7 @@ export async function resolveConnection(profile: string, database: string): Prom
     if (!/^[1-9][0-9]*$/.test(id)) throw new Error('Use a pgadmin:<id> selector from the profile list.');
     return (await runHelper(['resolve', id, database])) as ResolvedConnection;
   }
-  const environment = resolveEnvironment(profile, database);
+  const environment = await resolveEnvironment(profile, database);
   if (environment) {
     if (!profile.startsWith('env:')) throw new Error('Ambiguous profile source. Use the env:<name> or pgadmin:<id> selector from the profile list.');
     return environment;

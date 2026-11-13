@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { databaseTls } from './dbTls.js';
 import type { QueryResult } from '../src/shared/types.js';
 import type { ResolvedConnection } from './pgadmin.js';
 
@@ -26,13 +27,13 @@ async function runQueryWithParams(
     database: conn.database,
     user: conn.user,
     password: conn.password,
-    ssl: conn.sslmode && conn.sslmode !== 'disable' ? { rejectUnauthorized: false } : undefined,
+    ssl: databaseTls(conn),
     connectionTimeoutMillis: conn.connect_timeout ? Number(conn.connect_timeout) * 1000 : 15000,
   });
 
   const started = Date.now();
-  await client.connect();
   try {
+    await client.connect();
     if (readOnly) {
       await client.query('BEGIN READ ONLY');
       try {

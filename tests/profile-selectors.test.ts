@@ -32,9 +32,9 @@ it('keeps environment identity stable when entries are reordered', async () => {
   write(['shared', 'other']);
   expect((await resolveConnection('env:shared', 'fixture')).host).toBe('shared.manual.invalid');
 });
-it('uses qualified environment selectors for password prompts without capturing pgAdmin requests', () => {
+it('uses qualified environment selectors for password prompts without capturing pgAdmin requests', async () => {
   setSessionPassword('env:shared', 'fixture');
-  expect(resolveEnvironment('env:shared', 'fixture')?.password).toBe('fixture');
+  expect((await resolveEnvironment('env:shared', 'fixture'))?.password).toBe('fixture');
   const failure = Object.assign(new Error('password rejected'), {code:'28P01'});
   expect(passwordPromptReason('pgadmin:1', failure)).toBeUndefined();
   expect(passwordPromptReason('env:shared', failure)).toBe('rejected');
