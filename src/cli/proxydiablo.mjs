@@ -380,7 +380,9 @@ function handleFinalResponse(response) {
     process.exitCode = 130;
     return;
   }
-  console.error(response.error || 'Unknown proxy error.');
+  // An explicitly released SQL error includes the exact reviewed query.
+  if (response.status === 'error') console.log(JSON.stringify(response, null, 2));
+  else console.error(response.error || 'Unknown proxy error.');
   process.exitCode = 1;
 }
 

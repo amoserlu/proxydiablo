@@ -86,7 +86,9 @@ The blocking command returns one of these outcomes:
 - `released`: use only the released result. For SQL, mention any `filteredColumns`. For commands, interpret JSON when `outputKind` is `json`; otherwise use stdout/stderr and exit metadata.
 - `revision_requested`: follow the explanation, reformulate only what is needed, reclassify the new request, and submit it again in the same conversation. Do not require the user to restate the task.
 - `cancelled`: stop and do not resubmit.
-- `error`: explain the failure without seeking hidden output or bypassing the proxy.
+- `error`: explain the failure without seeking hidden output or bypassing the proxy. Explicitly released SQL errors include the exact reviewed `sql` and `error` in JSON on stdout; the CLI exits with code 1. Use this report to propose a corrected new request.
+
+Requests execute only once. After execution, inputs and outcomes are locked; do not try to reset or rerun the same tab. A corrected query or another execution requires a new supervised submission. Authentication failures may ask the user for a password before any SQL has executed.
 
 Never interpret `revision_requested` as permission to broaden scope. If the feedback requires a new material choice, ask the user.
 

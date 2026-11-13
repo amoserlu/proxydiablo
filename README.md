@@ -14,6 +14,8 @@ Proxy Diablo is a localhost-only, human-in-the-loop proxy for PostgreSQL, MySQL/
 - Command output is captured silently and never written to service logs.
 - SQL results support automatic sensitive-column filtering.
 - Results are returned only after an explicit sensitive-data confirmation.
+- Each request executes once. After execution, inputs are locked and only the reviewed output can be sent. Submit a new request to run again.
+- Failed SQL requests offer **Send error + SQL** with an exact preview and sensitive-data confirmation. The CLI returns structured JSON and exits with code 1.
 - **Cancel with explanation** lets the reviewer request a safer or narrower revision.
 
 ## Requirements
@@ -163,6 +165,11 @@ npm run build
 ```
 
 Implementation details and safety contracts are documented in [`specs/`](specs/).
+
+## Releases and changelog
+
+See [GitHub releases](https://github.com/amoserlu/proxydiablo/releases) for tagged source versions and [CHANGELOG.md](CHANGELOG.md) for changes and migration notes.
+Contributors should record user-facing changes under `Unreleased`; maintainers follow [the release procedure](docs/releases.md). Pushing a version tag runs validation and publishes the corresponding changelog entry.
 
 ## License
 

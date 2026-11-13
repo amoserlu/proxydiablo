@@ -32,6 +32,7 @@ import type {
 } from '../shared/types';
 import { api } from './api';
 import { NotificationToggles } from './notifications';
+import { canEditRequest, canRunRequest } from '../shared/requestLifecycle';
 import './styles.css';
 
 function App() {
@@ -138,7 +139,7 @@ interface CommonActionState {
 function useCommonActions(tab: ProxyTab) {
   const [state, setState] = useState<CommonActionState>({});
   const requiresDouble = tab.classification === 'write' || (tab.proxyType === 'pgsql' && tab.detectedClassification !== 'read');
-  const canRun = !['running', 'released', 'cancelled', 'revision_requested', 'error_sent'].includes(tab.status) && !(tab.proxyType === 'pgsql' && tab.requesterDisconnected);
+  const canRun = canRunRequest(tab);
   const canCancel = !['released', 'cancelled', 'revision_requested', 'error_sent'].includes(tab.status);
   const canRelease = tab.status === 'executed' && Boolean(tab.result);
   const canSendError = tab.status === 'error' && Boolean(tab.error);
@@ -209,7 +210,7 @@ function CommonToolbar({
           disabled={!actions.canRun || runDisabled}
           onClick={actions.openRun}
         >
-          <Play size={16} /> Run
+          <Play size={16} /> {tab.status === 'executed' || tab.status === 'released' ? 'Executed' : 'Run'}
         </button>
         <button disabled={!actions.canCancel} onClick={actions.cancel}>
           <Square size={16} /> Cancel
@@ -222,13 +223,16 @@ function CommonToolbar({
         </button>
         <button
           disabled={!actions.canSendError}
-          title="Send the error message to the requester"
+          title={tab.proxyType === 'pgsql' ? 'Send the error and the exact SQL to the requester' : 'Send the error message to the requester'}
           onClick={actions.openSendError}
         >
-          <AlertTriangle size={16} /> Send error
+          <AlertTriangle size={16} /> {tab.proxyType === 'pgsql' ? 'Send error + SQL' : 'Send error'}
         </button>
         {children}
       </div>
+      {(tab.status === 'executed' || tab.status === 'error') && (
+        <p className="request-lifecycle-note">This request cannot run again. Review and send {tab.status === 'error' ? 'the error' : 'the output'}, or submit a new request for another execution.</p>
+      )}
       {actions.state.actionError && <div className="action-error">{actions.state.actionError}</div>}
       {actions.state.confirmationStep && (
         <WriteConfirmationModal
@@ -248,7 +252,7 @@ function CommonToolbar({
       {actions.state.showSendError && (
         <ReleaseConfirmationModal
           kind="error"
-          detail={tab.error}
+          detail={tab.proxyType === 'pgsql' ? `SQL:\n${tab.sql}\n\nError:\n${tab.error}` : tab.error}
           onCancel={actions.closeSendError}
           onConfirm={actions.confirmSendError}
         />
@@ -264,7 +268,7 @@ function ClassificationControl({ tab }: { tab: ProxyTab }) {
       Declared type
       <select
         value={tab.classification}
-        disabled={tab.status === 'running'}
+        disabled={!canEditRequest(tab)}
         onChange={(event) => void api.updateClassification(tab.id, event.target.value as 'read' | 'write')}
       >
         <option value="read">Read · one confirmation</option>
@@ -321,6 +325,7 @@ function PgsqlPane({
           Profile
           <select
             value={tab.profile}
+            disabled={!canEditRequest(tab)}
             onChange={(event) => {
               const profile = profiles.find((item) => (item.selector ?? item.name) === event.target.value);
               const fallbackDatabase = profile?.engine === 'mysql' ? '' : 'postgres';
@@ -341,6 +346,7 @@ function PgsqlPane({
           Database
           <input
             value={tab.database}
+            disabled={!canEditRequest(tab)}
             placeholder="database"
             onChange={(event) => void api.updateConnection(tab.id, tab.profile, event.target.value)}
           />
@@ -351,7 +357,7 @@ function PgsqlPane({
       {tab.passwordRequiredFor && <PasswordPrompt tab={tab} />}
 
       <CommonToolbar tab={tab} actions={actions} runDisabled={connectionMissing}>
-        <button onClick={() => void api.updatePgsql(tab.id, formatSqlForEditor(tab.sql, tab.engine))}>
+        <button disabled={!canEditRequest(tab)} onClick={() => void api.updatePgsql(tab.id, formatSqlForEditor(tab.sql, tab.engine))}>
           <AlignLeft size={16} /> Format SQL
         </button>
         <button disabled={!tab.result} onClick={onToggleRaw}>
@@ -365,6 +371,7 @@ function PgsqlPane({
       <Description tab={tab} />
       <Editor
         label="SQL"
+        readOnly={!canEditRequest(tab)}
         value={tab.sql}
         height={editorHeight}
         extensions={[sql(tab.engine === 'mysql' ? { dialect: MySQL } : undefined)]}
@@ -395,7 +402,7 @@ function CommandPane({ tab }: { tab: CommandTab }) {
           <input
             value={tab.cwd}
             placeholder="/absolute/path"
-            disabled={tab.status === 'running'}
+            disabled={!canEditRequest(tab)}
             onChange={(event) => void api.updateCommand(tab.id, tab.command, event.target.value)}
           />
         </label>
@@ -406,6 +413,7 @@ function CommandPane({ tab }: { tab: CommandTab }) {
       <Description tab={tab} />
       <Editor
         label="Command"
+        readOnly={!canEditRequest(tab)}
         value={tab.command}
         height={editorHeight}
         extensions={[]}
@@ -423,18 +431,22 @@ function Editor({
   value,
   height,
   extensions,
+  readOnly,
   onChange,
 }: {
   label: string;
   value: string;
   height: number;
   extensions: Parameters<typeof CodeMirror>[0]['extensions'];
+  readOnly: boolean;
   onChange(value: string): void;
 }) {
   return (
     <div className="editor-wrap">
       <div className="editor-label">{label}</div>
       <CodeMirror
+        readOnly={readOnly}
+        editable={!readOnly}
         value={value}
         height={`${height}px`}
         extensions={extensions}
@@ -841,15 +853,15 @@ function ReleaseConfirmationModal({
         <div className="warning-icon"><AlertTriangle size={22} /></div>
         <div>
           <small>Sensitive-data check</small>
-          <h2 id="release-title">{error ? 'Is the error message free of sensitive data?' : 'Are you sure there is no sensitive data?'}</h2>
+          <h2 id="release-title">{error ? 'Is this error report free of sensitive data?' : 'Are you sure there is no sensitive data?'}</h2>
           <p>{error
-            ? 'Error messages are not filtered and can quote row values, for example a duplicate key. This exact text will be sent:'
+            ? 'Errors and SQL are not filtered and can contain sensitive values. Review the exact content below before sending:'
             : 'Only send the output after inspecting it. Command output is never filtered automatically.'}</p>
           {detail && <pre className="modal-detail">{detail}</pre>}
         </div>
         <div className="warning-actions">
           <button onClick={onCancel}>{error ? 'Review error' : 'Review output'}</button>
-          <button className="danger-confirm" onClick={onConfirm}>{error ? 'I confirm — send error message' : 'I confirm — send output'}</button>
+          <button className="danger-confirm" onClick={onConfirm}>{error ? 'I confirm — send error report' : 'I confirm — send output'}</button>
         </div>
       </div>
     </div>

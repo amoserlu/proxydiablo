@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { canEditRequest, canRunRequest } from '../src/shared/requestLifecycle.js';
 import { applyFilters, toggleExactFilter, toggleTabColumnFilter } from '../src/shared/filters.js';
 import { classifySql } from '../src/shared/sqlClassifier.js';
 import type {
@@ -169,7 +170,7 @@ export class ProxyService {
 
   updatePgsql(tabId: string, sql: string): void {
     const tab = this.getTab(tabId, 'pgsql');
-    if (!tab) return;
+    if (!tab || !canEditRequest(tab)) return;
     this.updateTab(tabId, {
       sql,
       detectedClassification: classifySql(sql, tab.engine),
@@ -182,7 +183,7 @@ export class ProxyService {
 
   updateConnection(tabId: string, profile: string, database: string): void {
     const tab = this.getTab(tabId, 'pgsql');
-    if (!tab) return;
+    if (!tab || !canEditRequest(tab)) return;
     const engine = profileEngine(profile);
     this.updateTab(tabId, {
       profile,
@@ -198,7 +199,7 @@ export class ProxyService {
 
   updateCommand(tabId: string, command: string, cwd: string): void {
     const tab = this.getTab(tabId, 'command');
-    if (!tab || tab.status === 'running') return;
+    if (!tab || !canEditRequest(tab)) return;
     this.updateTab(tabId, {
       command,
       cwd,
@@ -211,15 +212,17 @@ export class ProxyService {
 
   updateClassification(tabId: string, classification: ActionClassification): void {
     const tab = this.tabs.find((item) => item.id === tabId);
-    if (!tab || tab.status === 'running' || !isClassification(classification)) return;
+    if (!tab || !canEditRequest(tab) || !isClassification(classification)) return;
     this.updateTab(tabId, { classification });
   }
 
   async approveTab(tabId: string, doubleConfirmed: boolean): Promise<void> {
+    const candidate = this.tabs.find((item) => item.id === tabId);
+    if (!candidate || !canRunRequest(candidate)) return;
     this.refreshEngine(tabId);
     const tab = this.tabs.find((item) => item.id === tabId);
     if (!tab) return;
-    if (tab.status === 'running' || ['released', 'cancelled', 'revision_requested', 'error_sent'].includes(tab.status) || (tab.proxyType === 'pgsql' && tab.requesterDisconnected)) return;
+    if (!canRunRequest(tab)) return;
     if (requiresDoubleConfirmation(tab) && !doubleConfirmed) throw new DoubleConfirmationRequiredError();
 
     if (tab.proxyType === 'command') {
@@ -263,7 +266,7 @@ export class ProxyService {
 
   provideEnvironmentPassword(tabId: string, password: string): void {
     const tab = this.getTab(tabId, 'pgsql');
-    if (!tab?.passwordRequiredFor) throw new Error('This tab is not waiting for a password.');
+    if (!tab?.passwordRequiredFor || !canEditRequest(tab)) throw new Error('This tab is not waiting for a password.');
     setSessionPassword(tab.passwordRequiredFor, password);
     this.updateTab(tabId, { passwordRequiredFor: undefined, error: undefined });
   }
@@ -325,7 +328,7 @@ export class ProxyService {
     const error = tab.error;
     this.updateTab(tabId, { status: 'error_sent', releasedAt: new Date().toISOString() });
     if (tab.proxyType === 'command') this.issueCommandInstruction(tabId, { type: 'error', error });
-    else this.finishPgsql(tabId, { status: 'error', tabId, proxyType: 'pgsql', error });
+    else this.finishPgsql(tabId, { status: 'error', tabId, proxyType: 'pgsql', error, sql: tab.sql });
   }
 
   closeTab(tabId: string): void {

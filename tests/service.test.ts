@@ -193,6 +193,7 @@ describe('ProxyService send error', () => {
       tabId,
       proxyType: 'pgsql',
       error: 'column "missing_column" does not exist',
+      sql: 'select missing_column from users;',
     });
     expect(service.snapshot().tabs[0].status).toBe('error_sent');
   });

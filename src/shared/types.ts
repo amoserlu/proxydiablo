@@ -135,7 +135,8 @@ export type ProxyResponse =
   | { status: 'released'; tabId: string; proxyType: ProxyKind; result: ReleasedResult }
   | { status: 'cancelled'; tabId: string; proxyType: ProxyKind }
   | { status: 'revision_requested'; tabId: string; proxyType: ProxyKind; explanation: string }
-  | { status: 'error'; tabId: string; proxyType: ProxyKind; error: string };
+  | { status: 'error'; tabId: string; proxyType: 'pgsql'; error: string; sql: string }
+  | { status: 'error'; tabId: string; proxyType: 'command'; error: string };
 
 export type CommandInstruction =
   | { seq: number; type: 'run'; command: string; cwd: string }

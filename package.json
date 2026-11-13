@@ -1,6 +1,6 @@
 {
   "name": "proxydiablo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A localhost-only, human-in-the-loop proxy for PostgreSQL, MySQL and shell commands.",
   "private": true,
   "license": "MIT",
