@@ -14,6 +14,8 @@ import {
   EyeOff,
   FileText,
   Filter,
+  Lock,
+  LockOpen,
   MessageSquareWarning,
   Play,
   Plus,
@@ -31,6 +33,7 @@ import type {
   PgsqlTab,
   ProxyTab,
 } from '../shared/types';
+import { runsReadOnly } from '../shared/sqlClassifier';
 import { api } from './api';
 import { NotificationToggles } from './notifications';
 import { canEditRequest, canRunRequest } from '../shared/requestLifecycle';
@@ -139,7 +142,8 @@ interface CommonActionState {
 
 function useCommonActions(tab: ProxyTab) {
   const [state, setState] = useState<CommonActionState>({});
-  const requiresDouble = tab.classification === 'write' || (tab.proxyType === 'pgsql' && tab.detectedClassification !== 'read');
+  const requiresDouble = tab.classification === 'write'
+    || (tab.proxyType === 'pgsql' && (tab.detectedClassification !== 'read' || !runsReadOnly(tab)));
   const canRun = canRunRequest(tab);
   const canCancel = !['released', 'cancelled', 'revision_requested', 'error_sent'].includes(tab.status);
   const canRelease = tab.status === 'executed' && Boolean(tab.result);
@@ -280,6 +284,68 @@ function ClassificationControl({ tab }: { tab: ProxyTab }) {
   );
 }
 
+function ReadOnlyControl({ tab }: { tab: PgsqlTab }) {
+  const [step, setStep] = useState<1 | 2>();
+  const [error, setError] = useState<string>();
+  const readOnly = runsReadOnly(tab);
+  // A request runs once, so the switch is only open while the request can still be edited.
+  const locked = !canEditRequest(tab);
+  async function change(next: boolean, confirmed: boolean) {
+    setError(undefined);
+    try {
+      await api.setReadOnly(tab.id, next, confirmed);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+  return (
+    <>
+      <div className="read-only-control">
+        <span>
+          Transaction · <em className={error ? 'error-text' : ''}>{error ?? (tab.readOnlyOverride === undefined ? 'automatic' : 'set by you')}</em>
+        </span>
+        <button
+          className={readOnly ? 'read-only-on' : 'read-only-off'}
+          disabled={locked}
+          title={readOnly
+            ? 'Runs in a read-only transaction. Click to let this SQL write (asks twice).'
+            : 'Runs without a read-only transaction and can change data. Click to make it read-only.'}
+          onClick={() => (readOnly ? setStep(1) : void change(true, false))}
+        >
+          {readOnly ? <Lock size={15} /> : <LockOpen size={15} />} {readOnly ? 'Read-only' : 'Can write'}
+        </button>
+      </div>
+      {step && (
+        <div className="modal-backdrop">
+          <div className="warning-modal" role="alertdialog" aria-modal="true" aria-labelledby="read-only-title">
+            <div className="warning-icon"><AlertTriangle size={22} /></div>
+            <div>
+              <small>Confirmation {step} of 2</small>
+              <h2 id="read-only-title">{step === 2 ? 'Final confirmation' : 'Turn off read-only?'}</h2>
+              <p>{step === 2
+                ? 'Allow this SQL to change data when it runs? Editing the SQL resets this to automatic.'
+                : 'The SQL will run without a read-only transaction, so it can change data. Running it will also need the two write confirmations.'}</p>
+            </div>
+            <div className="warning-actions">
+              <button onClick={() => setStep(undefined)}>Keep read-only</button>
+              <button
+                className="danger-confirm"
+                onClick={() => {
+                  if (step === 1) setStep(2);
+                  else {
+                    setStep(undefined);
+                    void change(false, true);
+                  }
+                }}
+              >{step === 2 ? 'Turn off read-only' : 'I understand'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function Description({ tab }: { tab: ProxyTab }) {
   const [visible, setVisible] = useState(true);
   if (!tab.description) return null;
@@ -353,6 +419,7 @@ function PgsqlPane({
           />
         </label>
         <ClassificationControl tab={tab} />
+        <ReadOnlyControl tab={tab} />
       </div>
 
       {tab.passwordRequiredFor && <PasswordPrompt tab={tab} />}
@@ -547,6 +614,7 @@ function PgsqlStatus({ tab }: { tab: PgsqlTab; actionError?: string }) {
       <span className={`status-pill ${tab.status}`}><i />{tab.status}</span>
       <span className="kind-label">
         {tab.engine === 'mysql' ? 'MYSQL' : 'PGSQL'} · declared {tab.classification} · detected {tab.detectedClassification}
+        {' · '}{runsReadOnly(tab) ? 'read-only' : 'can write'}
       </span>
       {tab.result && <span>{tab.result.rowCount} rows · {tab.result.durationMs} ms</span>}
       {tab.error && <span className="error-text">{tab.error}</span>}

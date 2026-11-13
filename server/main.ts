@@ -203,7 +203,7 @@ async function handleUiRequest(request: http.IncomingMessage, response: http.Ser
   }
 
   const tabMatch = url.pathname.match(
-    /^\/api\/tabs\/([^/]+)(?:\/(active|pgsql|connection|command|classification|run|cancel|revise|release|send-error|column-filter|password))?$/,
+    /^\/api\/tabs\/([^/]+)(?:\/(active|pgsql|connection|command|classification|run|cancel|revise|release|send-error|read-only|column-filter|password))?$/,
   );
   if (!tabMatch) throw new HttpError(404, 'not_found');
 
@@ -226,6 +226,8 @@ async function handleUiRequest(request: http.IncomingMessage, response: http.Ser
     service.releaseTab(tabId, body.sensitiveDataConfirmed === true);
   } else if (action === 'password' && request.method === 'POST') {
     service.provideEnvironmentPassword(tabId, String(body.password ?? ''));
+  } else if (action === 'read-only' && request.method === 'POST') {
+    service.setReadOnly(tabId, body.readOnly === true, body.confirmed === true);
   } else if (action === 'send-error' && request.method === 'POST') {
     service.sendError(tabId, body.sensitiveDataConfirmed === true);
   } else if (action === 'column-filter' && request.method === 'POST') {

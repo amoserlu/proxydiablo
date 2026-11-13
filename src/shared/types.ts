@@ -81,6 +81,8 @@ export interface PgsqlTab extends BaseProxyTab {
   filterExemptColumns?: string[];
   /** Columns no filter rule matches but this tab hides anyway. */
   filterHiddenColumns?: string[];
+  /** The reviewer's choice of read-only transaction; absent means automatic (only detected reads). */
+  readOnlyOverride?: boolean;
   passwordRequiredFor?: string;
   requesterDisconnected?: boolean;
 }

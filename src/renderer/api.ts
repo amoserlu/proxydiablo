@@ -49,6 +49,8 @@ export const api = {
     request('POST', tabRoute(tabId, 'revise'), { explanation }),
   release: (tabId: string) =>
     request('POST', tabRoute(tabId, 'release'), { sensitiveDataConfirmed: true }),
+  setReadOnly: (tabId: string, readOnly: boolean, confirmed: boolean) =>
+    request('POST', tabRoute(tabId, 'read-only'), { readOnly, confirmed }),
   sendError: (tabId: string) =>
     request('POST', tabRoute(tabId, 'send-error'), { sensitiveDataConfirmed: true }),
   providePassword: (tabId: string, password: string) =>

@@ -6,6 +6,7 @@ import {
   DoubleConfirmationRequiredError,
   ProxyService,
   SensitiveOutputConfirmationRequiredError,
+  requiresDoubleConfirmation,
 } from '../server/service';
 
 describe('ProxyService', () => {
@@ -166,6 +167,52 @@ describe('ProxyService column filters', () => {
       service.toggleTabColumnFilter(tab.id, column);
       expect(hidden(column)).toBe(initially);
     }
+  });
+});
+
+describe('ProxyService read-only switch', () => {
+  const sqlTab = (service: ProxyService, sql: string) => service.createPgsqlTab({
+    profile: 'production',
+    database: 'app',
+    sql,
+    description: 'Read-only switch test.',
+    classification: 'read',
+  });
+  const current = (service: ProxyService) => service.snapshot().tabs[0] as Extract<ReturnType<ProxyService['snapshot']>['tabs'][number], { proxyType: 'pgsql' }>;
+
+  it('needs a double check to let detected reads write, and then two run confirmations', async () => {
+    const service = new ProxyService();
+    const tab = sqlTab(service, 'select refresh_totals();');
+    expect(requiresDoubleConfirmation(current(service))).toBe(false);
+
+    expect(() => service.setReadOnly(tab.id, false, false)).toThrow(DoubleConfirmationRequiredError);
+    expect(current(service).readOnlyOverride).toBeUndefined();
+
+    service.setReadOnly(tab.id, false, true);
+    expect(current(service).readOnlyOverride).toBe(false);
+    expect(requiresDoubleConfirmation(current(service))).toBe(true);
+    await expect(service.approveTab(tab.id, false)).rejects.toBeInstanceOf(DoubleConfirmationRequiredError);
+
+    service.setReadOnly(tab.id, true, false);
+    expect(current(service).readOnlyOverride).toBeUndefined();
+  });
+
+  it('lets ambiguous SQL run read-only without relaxing its confirmations', () => {
+    const service = new ProxyService();
+    const tab = sqlTab(service, 'select 1; select 2;');
+    service.setReadOnly(tab.id, true, false);
+    expect(current(service).readOnlyOverride).toBe(true);
+    expect(requiresDoubleConfirmation(current(service))).toBe(true);
+  });
+
+  it('forgets the choice when the SQL changes', () => {
+    const service = new ProxyService();
+    const tab = sqlTab(service, 'select 1;');
+    service.setReadOnly(tab.id, false, true);
+    service.updatePgsql(tab.id, 'select 1;');
+    expect(current(service).readOnlyOverride).toBe(false);
+    service.updatePgsql(tab.id, 'select 2;');
+    expect(current(service).readOnlyOverride).toBeUndefined();
   });
 });
 

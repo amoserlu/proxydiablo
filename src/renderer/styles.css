@@ -148,7 +148,11 @@ button:hover:not(:disabled) { background: #221c1c; }
   background: #141212;
 }
 
-.pgsql-meta { grid-template-columns: minmax(300px, 1.2fr) minmax(180px, .6fr) minmax(220px, auto); }
+.pgsql-meta { grid-template-columns: minmax(260px, 1.2fr) minmax(160px, .6fr) minmax(220px, auto) minmax(170px, auto); }
+.read-only-control { display: flex; flex-direction: column; gap: 7px; color: #a89b9b; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+.read-only-control > button { height: 42px; justify-content: flex-start; border-color: #342c2c; background: #0f0d0d; color: #f2eded; font-size: 14px; text-transform: none; letter-spacing: 0; }
+.read-only-control > button.read-only-off { border-color: rgba(224, 26, 43, .6); background: #3a171b; color: #ff8a95; }
+.read-only-control em { font-style: normal; font-weight: 500; text-transform: none; letter-spacing: 0; }
 .command-meta { grid-template-columns: minmax(420px, 1fr) minmax(220px, auto); }
 
 .query-meta label { display: flex; flex-direction: column; gap: 7px; color: #a89b9b; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }

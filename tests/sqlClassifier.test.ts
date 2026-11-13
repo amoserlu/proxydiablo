@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifySql } from '../src/shared/sqlClassifier';
+import { classifySql, runsReadOnly } from '../src/shared/sqlClassifier';
 
 describe('classifySql', () => {
   it('allows simple reads', () => {
@@ -102,5 +102,14 @@ describe('classifySql for MySQL', () => {
     const dollar = 'select $a$; drop table users; $a$';
     expect(classifySql(dollar)).toBe('read');
     expect(mysql(dollar)).toBe('ambiguous');
+  });
+});
+
+describe('runsReadOnly', () => {
+  it('follows detection unless the reviewer chose', () => {
+    expect(runsReadOnly({ detectedClassification: 'read' })).toBe(true);
+    expect(runsReadOnly({ detectedClassification: 'ambiguous' })).toBe(false);
+    expect(runsReadOnly({ detectedClassification: 'read', readOnlyOverride: false })).toBe(false);
+    expect(runsReadOnly({ detectedClassification: 'write', readOnlyOverride: true })).toBe(true);
   });
 });
