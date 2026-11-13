@@ -105,6 +105,8 @@ describe('manual environments', () => {
     writeFile({ environments: [{ name: 'pg', host: 'h', user: 'u' }, { name: 'my', engine: 'mysql', host: 'h', user: 'u' }] });
     expect(listEnvironmentProfiles().map((profile) => profile.engine)).toEqual(['postgresql', 'mysql']);
     expect(profileEngine('my')).toBe('mysql');
+    expect(profileEngine('env:my')).toBe('mysql');
+    expect(profileEngine('pgadmin:1')).toBe('postgresql');
     expect(profileEngine('pg')).toBe('postgresql');
     expect(profileEngine('pgadmin-profile')).toBe('postgresql');
     await expect(resolveEnvironment('my', 'app')).resolves.toMatchObject({ engine: 'mysql', auth: 'password', database: 'app' });
@@ -167,7 +169,7 @@ describe('rds-iam environments', () => {
     writeFile({ environments: [{ name: 'iam', engine: 'mysql', host, user: 'dev', auth: 'rds-iam' }] });
     fakeAws('echo "TOKEN:$*"');
     const connection = await resolveEnvironment('iam', 'app');
-    expect(connection).toMatchObject({ engine: 'mysql', auth: 'rds-iam', sslmode: 'require' });
+    expect(connection).toMatchObject({ engine: 'mysql', auth: 'rds-iam', sslmode: 'verify-full' });
     expect(connection?.password).toContain('--port 3306');
   });
 

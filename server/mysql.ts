@@ -1,4 +1,6 @@
 import mysql from 'mysql2/promise';
+import net from 'node:net';
+import { databaseTls } from './dbTls.js';
 import type { ExecuteValues, FieldPacket } from 'mysql2';
 import type { InspectRequest, InspectResult, QueryResult } from '../src/shared/types.js';
 import type { ResolvedConnection } from './pgadmin.js';
@@ -12,13 +14,20 @@ export async function runMysqlQuery(
   readOnly: boolean,
 ): Promise<QueryResult> {
   const started = Date.now();
+  const ssl = databaseTls(conn);
+  const verifiedHost = ssl && ssl.verifyIdentity ? conn.tlsServerName ?? conn.host : conn.host;
   const connection = await mysql.createConnection({
-    host: conn.host,
+    host: verifiedHost,
+    // mysql2 verifies config.host during TLS. A custom transport preserves that
+    // identity while connecting to the forwarded address of an IAM tunnel.
+    stream: verifiedHost !== conn.host
+      ? () => net.connect({ host: conn.host ?? 'localhost', port: conn.port ?? 3306 })
+      : undefined,
     port: conn.port,
     database: conn.database || undefined,
     user: conn.user,
     password: conn.password,
-    ssl: conn.sslmode && conn.sslmode !== 'disable' ? { rejectUnauthorized: false } : undefined,
+    ssl: ssl ? { rejectUnauthorized: ssl.rejectUnauthorized, verifyIdentity: ssl.verifyIdentity, ca: ssl.ca as string | undefined } : undefined,
     connectTimeout: conn.connect_timeout ? Number(conn.connect_timeout) * 1000 : 15000,
     // Reviewed scripts may chain setup statements before the query, as they can with PostgreSQL.
     multipleStatements: params.length === 0,
