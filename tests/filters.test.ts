@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { addExactFilter, applyFilters, defaultFilterRules, isColumnFiltered, toggleExactFilter } from '../src/shared/filters';
+import {
+  addExactFilter,
+  applyFilters,
+  defaultFilterRules,
+  isColumnFiltered,
+  toggleExactFilter,
+  toggleTabColumnFilter,
+} from '../src/shared/filters';
 
 describe('filters', () => {
   it('filters default sensitive columns', () => {
@@ -50,5 +57,35 @@ describe('filters', () => {
     expect(isColumnFiltered('accidental_column', enabled)).toBe(true);
     const disabled = toggleExactFilter(enabled, 'accidental_column');
     expect(isColumnFiltered('accidental_column', disabled)).toBe(false);
+  });
+
+  it('hides per-tab hidden columns even when no rule matches', () => {
+    const result = applyFilters(
+      {
+        columns: [{ name: 'email' }, { name: 'safe_count' }],
+        rows: [{ email: 'a@example.com', safe_count: 3 }],
+        rowCount: 1,
+        durationMs: 4,
+      },
+      defaultFilterRules(),
+      [],
+      ['SAFE_COUNT'],
+    );
+    expect(result.filteredColumns).toEqual(['email', 'safe_count']);
+    expect(result.rows[0]).toEqual({ email: '[email]', safe_count: '[safe_count]' });
+  });
+
+  it('toggles a rule-matched column between hidden and shown', () => {
+    const rules = defaultFilterRules();
+    const shown = toggleTabColumnFilter('email', rules, [], []);
+    expect(shown).toEqual({ exemptColumns: ['email'], hiddenColumns: [] });
+    expect(toggleTabColumnFilter('email', rules, shown.exemptColumns, shown.hiddenColumns)).toEqual({ exemptColumns: [], hiddenColumns: [] });
+  });
+
+  it('toggles an unmatched column between shown and hidden', () => {
+    const rules = defaultFilterRules();
+    const hidden = toggleTabColumnFilter('safe_count', rules, [], []);
+    expect(hidden).toEqual({ exemptColumns: [], hiddenColumns: ['safe_count'] });
+    expect(toggleTabColumnFilter('safe_count', rules, hidden.exemptColumns, hidden.hiddenColumns)).toEqual({ exemptColumns: [], hiddenColumns: [] });
   });
 });

@@ -10,9 +10,11 @@ export type ProxyStatus =
   | 'released'
   | 'cancelled'
   | 'revision_requested'
-  | 'error';
+  | 'error'
+  | 'error_sent';
 
 export type SqlClassification = 'read' | 'write' | 'ambiguous';
+export type DatabaseEngine = 'postgresql' | 'mysql';
 
 export interface ProfileSummary {
   id: number;
@@ -22,6 +24,7 @@ export interface ProfileSummary {
   port?: number;
   username?: string;
   maintenanceDb?: string;
+  engine?: DatabaseEngine;
 }
 
 export interface QueryColumn {
@@ -69,10 +72,15 @@ export interface PgsqlTab extends BaseProxyTab {
   profile: string;
   database: string;
   sql: string;
+  /** Absent on tabs created before engines existed; treated as PostgreSQL. */
+  engine?: DatabaseEngine;
   detectedClassification: SqlClassification;
   result?: QueryResult;
   filtered?: FilteredResult;
+  /** Columns a filter rule matches but this tab shows anyway. */
   filterExemptColumns?: string[];
+  /** Columns no filter rule matches but this tab hides anyway. */
+  filterHiddenColumns?: string[];
   passwordRequiredFor?: string;
   requesterDisconnected?: boolean;
 }

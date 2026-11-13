@@ -1,9 +1,11 @@
 import type { InspectRequest, InspectResult } from '../src/shared/types.js';
+import { inspectMysqlStructure } from './mysql.js';
 import { resolveConnection } from './pgadmin.js';
 import { runReadOnlyQuery } from './queryRunner.js';
 
 export async function inspectStructure(request: InspectRequest): Promise<InspectResult> {
   const connection = await resolveConnection(request.profile, request.database);
+  if (connection.engine === 'mysql') return inspectMysqlStructure(connection, request);
   const wantsAll = request.kinds.includes('all');
   const result: InspectResult = {
     profile: connection.name || request.profile,

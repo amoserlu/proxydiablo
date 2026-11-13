@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { applyFilters, toggleExactFilter } from '../src/shared/filters.js';
+import { applyFilters, toggleExactFilter, toggleTabColumnFilter } from '../src/shared/filters.js';
 import { classifySql } from '../src/shared/sqlClassifier.js';
 import type {
   ActionClassification,
@@ -15,7 +15,7 @@ import type {
   ProxyResponse,
   ProxyTab,
 } from '../src/shared/types.js';
-import { passwordPromptReason, setSessionPassword } from './environments.js';
+import { passwordPromptReason, profileEngine, setSessionPassword } from './environments.js';
 import { listProfiles, resolveConnection } from './pgadmin.js';
 import { inspectStructure } from './pgsql.js';
 import { runQuery } from './queryRunner.js';
@@ -97,18 +97,20 @@ export class ProxyService {
     const sql = request?.sql ?? '';
     const profile = request?.profile ?? '';
     const database = request?.database ?? '';
+    const engine = profileEngine(profile);
     const tab: PgsqlTab = {
       id: this.makeId(request ? 'pgsql' : 'manual'),
       proxyType: 'pgsql',
-      title: database || 'New PostgreSQL request',
+      title: database || 'New SQL request',
       profile,
       database,
       sql,
+      engine,
       description: request?.description?.trim() || undefined,
       source: request ? 'codex' : 'manual',
       status: request ? 'waiting_user' : 'draft',
       classification: request?.classification ?? 'read',
-      detectedClassification: classifySql(sql),
+      detectedClassification: classifySql(sql, engine),
       createdAt: new Date().toISOString(),
     };
     this.addTab(tab, Boolean(request));
@@ -147,7 +149,7 @@ export class ProxyService {
   abandonPgsql(tabId: string): void {
     if (!this.pgsqlWaiters.delete(tabId)) return;
     const tab = this.getTab(tabId, 'pgsql');
-    if (!tab || ['released', 'cancelled', 'revision_requested'].includes(tab.status)) return;
+    if (!tab || ['released', 'cancelled', 'revision_requested', 'error_sent'].includes(tab.status)) return;
     if (['running', 'executed', 'error'].includes(tab.status)) {
       this.updateTab(tabId, { requesterDisconnected: true });
       return;
@@ -170,7 +172,7 @@ export class ProxyService {
     if (!tab) return;
     this.updateTab(tabId, {
       sql,
-      detectedClassification: classifySql(sql),
+      detectedClassification: classifySql(sql, tab.engine),
       status: tab.status === 'waiting_user' ? 'waiting_user' : 'draft',
       error: undefined,
       result: undefined,
@@ -181,10 +183,13 @@ export class ProxyService {
   updateConnection(tabId: string, profile: string, database: string): void {
     const tab = this.getTab(tabId, 'pgsql');
     if (!tab) return;
+    const engine = profileEngine(profile);
     this.updateTab(tabId, {
       profile,
       database,
-      title: database || profile || 'New PostgreSQL request',
+      engine,
+      detectedClassification: classifySql(tab.sql, engine),
+      title: database || profile || 'New SQL request',
       passwordRequiredFor: undefined,
       error: undefined,
       status: tab.source === 'codex' ? 'waiting_user' : 'draft',
@@ -211,9 +216,10 @@ export class ProxyService {
   }
 
   async approveTab(tabId: string, doubleConfirmed: boolean): Promise<void> {
+    this.refreshEngine(tabId);
     const tab = this.tabs.find((item) => item.id === tabId);
     if (!tab) return;
-    if (tab.status === 'running' || ['released', 'cancelled', 'revision_requested'].includes(tab.status) || (tab.proxyType === 'pgsql' && tab.requesterDisconnected)) return;
+    if (tab.status === 'running' || ['released', 'cancelled', 'revision_requested', 'error_sent'].includes(tab.status) || (tab.proxyType === 'pgsql' && tab.requesterDisconnected)) return;
     if (requiresDoubleConfirmation(tab) && !doubleConfirmed) throw new DoubleConfirmationRequiredError();
 
     if (tab.proxyType === 'command') {
@@ -311,10 +317,21 @@ export class ProxyService {
     this.issueCommandInstruction(tabId, { type: 'released' });
   }
 
+  /** Returns a failed request's error to the waiting requester, after the same sensitive-data check as output. */
+  sendError(tabId: string, sensitiveDataConfirmed: boolean): void {
+    if (!sensitiveDataConfirmed) throw new SensitiveOutputConfirmationRequiredError();
+    const tab = this.tabs.find((item) => item.id === tabId);
+    if (!tab || tab.status !== 'error' || !tab.error) return;
+    const error = tab.error;
+    this.updateTab(tabId, { status: 'error_sent', releasedAt: new Date().toISOString() });
+    if (tab.proxyType === 'command') this.issueCommandInstruction(tabId, { type: 'error', error });
+    else this.finishPgsql(tabId, { status: 'error', tabId, proxyType: 'pgsql', error });
+  }
+
   closeTab(tabId: string): void {
     const tab = this.tabs.find((item) => item.id === tabId);
     if (!tab) return;
-    if (!['released', 'cancelled', 'revision_requested'].includes(tab.status)) this.cancelTab(tabId);
+    if (!['released', 'cancelled', 'revision_requested', 'error_sent'].includes(tab.status)) this.cancelTab(tabId);
     const index = this.tabs.findIndex((item) => item.id === tabId);
     this.tabs = this.tabs.filter((item) => item.id !== tabId);
     if (this.activeTabId === tabId) {
@@ -340,19 +357,25 @@ export class ProxyService {
     this.reapplyFilters();
   }
 
-  toggleTabFilterExemption(tabId: string, columnName: string): void {
+  toggleTabColumnFilter(tabId: string, columnName: string): void {
     const tab = this.getTab(tabId, 'pgsql');
-    if (!tab) return;
-    const existing = tab.filterExemptColumns ?? [];
-    const exists = existing.some((column) => column.toLowerCase() === columnName.toLowerCase());
-    this.updateTab(tabId, {
-      filterExemptColumns: exists
-        ? existing.filter((column) => column.toLowerCase() !== columnName.toLowerCase())
-        : [...existing, columnName],
-    });
+    if (!tab || !columnName) return;
+    const next = toggleTabColumnFilter(columnName, this.filters, tab.filterExemptColumns ?? [], tab.filterHiddenColumns ?? []);
+    this.updateTab(tabId, { filterExemptColumns: next.exemptColumns, filterHiddenColumns: next.hiddenColumns });
   }
 
   inspect = inspectStructure;
+
+  /** environments.json may have changed the profile's engine since the SQL was classified. */
+  private refreshEngine(tabId: string): void {
+    const tab = this.getTab(tabId, 'pgsql');
+    if (!tab) return;
+    const engine = profileEngine(tab.profile);
+    const detectedClassification = classifySql(tab.sql, engine);
+    if (engine !== (tab.engine ?? 'postgresql') || detectedClassification !== tab.detectedClassification) {
+      this.updateTab(tabId, { engine, detectedClassification });
+    }
+  }
 
   private addTab(tab: ProxyTab, requestAttention: boolean): void {
     this.tabs = [...this.tabs, tab];
@@ -375,7 +398,12 @@ export class ProxyService {
       if (tab.id !== tabId) return tab;
       const updated = { ...tab, ...patch } as ProxyTab;
       if (updated.proxyType === 'pgsql' && updated.result) {
-        updated.filtered = applyFilters(updated.result, this.filters, updated.filterExemptColumns ?? []);
+        updated.filtered = applyFilters(
+          updated.result,
+          this.filters,
+          updated.filterExemptColumns ?? [],
+          updated.filterHiddenColumns ?? [],
+        );
       }
       return updated;
     });
@@ -384,7 +412,7 @@ export class ProxyService {
 
   private reapplyFilters(): void {
     this.tabs = this.tabs.map((tab) => tab.proxyType === 'pgsql' && tab.result
-      ? { ...tab, filtered: applyFilters(tab.result, this.filters, tab.filterExemptColumns ?? []) }
+      ? { ...tab, filtered: applyFilters(tab.result, this.filters, tab.filterExemptColumns ?? [], tab.filterHiddenColumns ?? []) }
       : tab);
     this.broadcast();
   }

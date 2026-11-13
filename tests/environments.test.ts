@@ -7,6 +7,7 @@ import {
   listEnvironmentProfiles,
   loadEnvironments,
   passwordPromptReason,
+  profileEngine,
   regionFromHost,
   resolveEnvironment,
   setSessionPassword,
@@ -100,6 +101,25 @@ describe('manual environments', () => {
     expect((await resolveEnvironment('dev', 'd'))?.password).toBe('right');
   });
 
+  it('defaults to PostgreSQL and accepts MySQL environments', async () => {
+    writeFile({ environments: [{ name: 'pg', host: 'h', user: 'u' }, { name: 'my', engine: 'mysql', host: 'h', user: 'u' }] });
+    expect(listEnvironmentProfiles().map((profile) => profile.engine)).toEqual(['postgresql', 'mysql']);
+    expect(profileEngine('my')).toBe('mysql');
+    expect(profileEngine('env:my')).toBe('mysql');
+    expect(profileEngine('pgadmin:1')).toBe('postgresql');
+    expect(profileEngine('pg')).toBe('postgresql');
+    expect(profileEngine('pgadmin-profile')).toBe('postgresql');
+    await expect(resolveEnvironment('my', 'app')).resolves.toMatchObject({ engine: 'mysql', auth: 'password', database: 'app' });
+    writeFile({ environments: [{ name: 'x', engine: 'oracle', host: 'h', user: 'u' }] });
+    expect(() => loadEnvironments()).toThrow('engine must be "postgresql" or "mysql"');
+  });
+
+  it('asks for a MySQL password when access is denied', () => {
+    writeFile({ environments: [{ name: 'my', engine: 'mysql', host: 'h', user: 'u' }] });
+    const denied = Object.assign(new Error("Access denied for user 'u'@'h' (using password: NO)"), { code: 'ER_ACCESS_DENIED_ERROR' });
+    expect(passwordPromptReason('my', denied)).toBe('missing');
+  });
+
   it('resolveConnection serves environments without calling pgAdmin', async () => {
     writeFile({ environments: [{ name: 'dev', host: 'h', user: 'u' }] });
     await expect(resolveConnection('env:dev', 'd')).resolves.toMatchObject({ name: 'dev', host: 'h', database: 'd' });
@@ -143,6 +163,22 @@ describe('rds-iam environments', () => {
     expect(connection?.password).toBe(
       `TOKEN:rds generate-db-auth-token --hostname ${host} --port 5432 --region eu-west-2 --username dev --profile cec_developer`,
     );
+  });
+
+  it('mints MySQL tokens for the MySQL default port', async () => {
+    writeFile({ environments: [{ name: 'iam', engine: 'mysql', host, user: 'dev', auth: 'rds-iam' }] });
+    fakeAws('echo "TOKEN:$*"');
+    const connection = await resolveEnvironment('iam', 'app');
+    expect(connection).toMatchObject({ engine: 'mysql', auth: 'rds-iam', sslmode: 'verify-full' });
+    expect(connection?.password).toContain('--port 3306');
+  });
+
+  it('uses the MySQL signing port independently of a forwarded local port', async () => {
+    writeFile({ environments: [{ name: 'tunnel', engine: 'mysql', host: 'localhost', port: 13306, user: 'dev', auth: 'rds-iam', iamHost: host }] });
+    fakeAws('echo "TOKEN:$*"');
+    const connection = await resolveEnvironment('tunnel', 'app');
+    expect(connection).toMatchObject({ host: 'localhost', port: 13306 });
+    expect(connection?.password).toContain(`--hostname ${host} --port 3306 --region eu-west-2`);
   });
 
   it('signs a tunnel token for the real endpoint while connecting through the local port', async () => {

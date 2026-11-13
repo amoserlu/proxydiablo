@@ -34,11 +34,18 @@ export function defaultFilterRules(now = new Date()): FilterRule[] {
   }));
 }
 
-export function applyFilters(result: QueryResult, rules: FilterRule[], exemptColumns: string[] = []): FilteredResult {
+export function applyFilters(
+  result: QueryResult,
+  rules: FilterRule[],
+  exemptColumns: string[] = [],
+  hiddenColumns: string[] = [],
+): FilteredResult {
   const exemptSet = new Set(exemptColumns.map((column) => column.toLowerCase()));
+  const hiddenSet = new Set(hiddenColumns.map((column) => column.toLowerCase()));
   const filteredColumns = result.columns
     .map((column) => column.name)
-    .filter((columnName) => !exemptSet.has(columnName.toLowerCase()) && isColumnFiltered(columnName, rules));
+    .filter((columnName) => hiddenSet.has(columnName.toLowerCase())
+      || (!exemptSet.has(columnName.toLowerCase()) && isColumnFiltered(columnName, rules)));
   const filteredSet = new Set(filteredColumns);
 
   return {
@@ -62,6 +69,33 @@ export function isColumnFiltered(columnName: string, rules: FilterRule[]): boole
     if (rule.mode === 'exact') return column === pattern;
     return globToRegExp(pattern).test(column);
   });
+}
+
+/**
+ * Flips one column between hidden and shown for a single tab. A column a rule matches is shown by
+ * exempting it; any other column is hidden by listing it as hidden.
+ */
+export function toggleTabColumnFilter(
+  columnName: string,
+  rules: FilterRule[],
+  exemptColumns: string[],
+  hiddenColumns: string[],
+): { exemptColumns: string[]; hiddenColumns: string[] } {
+  const key = columnName.toLowerCase();
+  const without = (columns: string[]) => columns.filter((column) => column.toLowerCase() !== key);
+  const ruleMatches = isColumnFiltered(columnName, rules);
+  const hidden = hiddenColumns.some((column) => column.toLowerCase() === key)
+    || (ruleMatches && !exemptColumns.some((column) => column.toLowerCase() === key));
+  if (hidden) {
+    return {
+      exemptColumns: ruleMatches ? [...without(exemptColumns), columnName] : without(exemptColumns),
+      hiddenColumns: without(hiddenColumns),
+    };
+  }
+  return {
+    exemptColumns: without(exemptColumns),
+    hiddenColumns: ruleMatches ? without(hiddenColumns) : [...without(hiddenColumns), columnName],
+  };
 }
 
 export function globToRegExp(pattern: string): RegExp {

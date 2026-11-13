@@ -1,7 +1,7 @@
 # Implementation Summary
 
 ## Status
-Proxy Diablo is a local, human-supervised web proxy for PostgreSQL and shell commands.
+Proxy Diablo is a local, human-supervised web proxy for PostgreSQL, MySQL/MariaDB and shell commands. MySQL is selected per manual environment with `engine: "mysql"`; `proxydiablo sql ...` is an engine-neutral alias of `proxydiablo pgsql ...`.
 
 ## Runtime and entrypoints
 - Node HTTP service + Vite/React/TypeScript UI at `http://localhost:17871/`, bound only to loopback.
@@ -14,9 +14,9 @@ Proxy Diablo is a local, human-supervised web proxy for PostgreSQL and shell com
 
 ## Safety model
 - Every executable request declares `read` or `write` and explains what it does. Uncertain actions are declared `write`.
-- Reads require one Run action. Declared writes, detected PostgreSQL writes, and ambiguous SQL require two confirmations.
+- Reads require one Run action. Declared writes, detected SQL writes, and ambiguous SQL require two confirmations.
 - Command execution happens in the blocking CLI process with its current environment and working directory. stdout/stderr are captured silently and never logged or returned before human release.
-- PostgreSQL row output keeps automatic column filtering. Command output has no automatic filtering.
+- SQL row output keeps automatic column filtering. Command output has no automatic filtering.
 - Every output release shows a sensitive-data warning and requires explicit confirmation.
 - Cancel with explanation returns structured feedback so the caller can reformulate the request without ending the conversation.
 

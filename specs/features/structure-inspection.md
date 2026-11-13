@@ -27,6 +27,11 @@ proxydiablo pgsql inspect "<profile>" "<database>" --all
 - Inspection MUST not open a query tab or require human approval.
 - Inspection MUST not steal focus.
 
+## MySQL
+- A MySQL database is a schema. `--schemas` lists the databases the user can see, excluding `information_schema`, `mysql`, `performance_schema` and `sys`.
+- `--tables`, `--views` and `--columns` default to the connected database; `--schema` selects another database.
+- Inspection uses `information_schema` in a read-only transaction and returns the same field names as PostgreSQL.
+
 ## Acceptance
 - `proxydiablo pgsql profiles` returns JSON profile metadata.
 - `proxydiablo pgsql inspect "<profile>" "<db>" --schemas` returns non-system schemas.

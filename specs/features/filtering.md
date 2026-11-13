@@ -4,10 +4,10 @@
 Implemented.
 
 ## Goal
-Prevent Codex from seeing sensitive PostgreSQL column values while letting the user view and tune filters locally.
+Prevent Codex from seeing sensitive SQL column values while letting the user view and tune filters locally.
 
 ## Requirements
-- Filters apply only to PostgreSQL and are global across all profiles and databases.
+- Filters apply only to SQL results (PostgreSQL and MySQL) and are global across all profiles and databases.
 - Filters support exact column names and glob wildcards with `*` and `?`, case-insensitive.
 - Filter rules are persisted in `~/.config/proxydiablo/filters.json`; existing legacy rules are imported once when the new file does not exist.
 - Defaults include common sensitive patterns: password, passwd, token, secret, email, mail, phone, telefono, tlf, user, usuario, username, name, nombre, address, direccion, dob, birth, dni, nif, id_number.

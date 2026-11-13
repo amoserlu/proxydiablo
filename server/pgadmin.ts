@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { ProfileSummary } from '../src/shared/types.js';
+import type { DatabaseEngine, ProfileSummary } from '../src/shared/types.js';
 import { listEnvironmentProfiles, resolveEnvironment } from './environments.js';
 import { projectDir } from './paths.js';
 
@@ -21,6 +21,8 @@ export interface ResolvedConnection {
   auth?: 'password' | 'rds-iam';
   connect_timeout?: string;
   service?: string;
+  /** Absent for pgAdmin profiles, which are always PostgreSQL. */
+  engine?: DatabaseEngine;
 }
 
 function pgadminPython(): string {
@@ -40,7 +42,7 @@ export async function listProfiles(): Promise<ProfileSummary[]> {
   const environments = listEnvironmentProfiles();
   try {
     const data = (await runHelper(['list'])) as { profiles: ProfileSummary[] };
-    return [...environments, ...data.profiles.map(profile => ({ ...profile, selector: `pgadmin:${profile.id}` }))];
+    return [...environments, ...data.profiles.map(profile => ({ ...profile, selector: `pgadmin:${profile.id}`, engine: 'postgresql' as const }))];
   } catch (error) {
     // pgAdmin is optional once manual environments exist.
     if (environments.length) return environments;
