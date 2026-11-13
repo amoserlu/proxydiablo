@@ -28,3 +28,11 @@ GitHub provides source archives for every release tag.
 
 The initial v0.1.0 release was added retrospectively at its original source
 commit. Its changelog date describes that source baseline, not its publication date.
+
+The v0.1.1, v0.1.2, and v0.1.3 tags are retrospective milestones for PRs #3,
+#4, and #5. They point to the original merge commits, whose package files still
+say 0.1.0. These archival patch numbers fill the historical sequence without
+renumbering published versions; they do not imply fix-only changes. They were
+published manually with `--latest=false`, before the automated release workflow
+existed at those commits. New releases must follow the version matching and
+semantic versioning rules above.
