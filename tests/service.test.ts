@@ -144,3 +144,34 @@ describe('ProxyService', () => {
     expect(service.hasUiClients()).toBe(false);
   });
 });
+
+describe('ProxyService abandoned submissions', () => {
+  it('cancels a waiting tab when its requester disconnects', async () => {
+    const service = new ProxyService();
+    const { tabId } = service.startPgsqlSubmission({
+      profile: 'p',
+      database: 'd',
+      sql: 'select 1;',
+      description: 'Abandon test.',
+      classification: 'read',
+    });
+    service.abandonPgsql(tabId);
+    const tab = service.snapshot().tabs.find((item) => item.id === tabId);
+    expect(tab).toMatchObject({ status: 'cancelled' });
+    expect(tab?.error).toContain('requester disconnected');
+  });
+
+  it('leaves a finished tab alone', () => {
+    const service = new ProxyService();
+    const { tabId } = service.startPgsqlSubmission({
+      profile: 'p',
+      database: 'd',
+      sql: 'select 1;',
+      description: 'Abandon test.',
+      classification: 'read',
+    });
+    service.cancelTab(tabId);
+    service.abandonPgsql(tabId);
+    expect(service.snapshot().tabs.find((item) => item.id === tabId)?.error).toBeUndefined();
+  });
+});

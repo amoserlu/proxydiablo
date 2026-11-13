@@ -17,6 +17,7 @@ export type SqlClassification = 'read' | 'write' | 'ambiguous';
 export interface ProfileSummary {
   id: number;
   name: string;
+  selector?: string;
   host?: string;
   port?: number;
   username?: string;
@@ -72,6 +73,8 @@ export interface PgsqlTab extends BaseProxyTab {
   result?: QueryResult;
   filtered?: FilteredResult;
   filterExemptColumns?: string[];
+  passwordRequiredFor?: string;
+  requesterDisconnected?: boolean;
 }
 
 export interface CommandResult {

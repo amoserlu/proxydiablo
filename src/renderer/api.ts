@@ -49,6 +49,8 @@ export const api = {
     request('POST', tabRoute(tabId, 'revise'), { explanation }),
   release: (tabId: string) =>
     request('POST', tabRoute(tabId, 'release'), { sensitiveDataConfirmed: true }),
+  providePassword: (tabId: string, password: string) =>
+    request('POST', tabRoute(tabId, 'password'), { password }),
   setActiveTab: (tabId: string) => request('POST', tabRoute(tabId, 'active'), {}),
   closeTab: (tabId: string) => request('DELETE', tabRoute(tabId), {}),
   saveFilters: (filters: FilterRule[]) => request('PUT', '/api/filters', { filters }),

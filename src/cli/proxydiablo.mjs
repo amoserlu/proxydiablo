@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const PROJECT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const CONFIG_DIR = path.join(os.homedir(), '.config', 'proxydiablo');
+const CONFIG_DIR = path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config'), 'proxydiablo');
 const BRIDGE_FILE = path.join(CONFIG_DIR, 'bridge.json');
 const LOG_FILE = path.join(CONFIG_DIR, 'server.log');
 const SERVER_ENTRY = path.join(PROJECT_DIR, 'dist-server', 'server', 'main.js');

@@ -132,7 +132,7 @@ interface CommonActionState {
 function useCommonActions(tab: ProxyTab) {
   const [state, setState] = useState<CommonActionState>({});
   const requiresDouble = tab.classification === 'write' || (tab.proxyType === 'pgsql' && tab.detectedClassification !== 'read');
-  const canRun = !['running', 'released', 'cancelled', 'revision_requested'].includes(tab.status);
+  const canRun = !['running', 'released', 'cancelled', 'revision_requested'].includes(tab.status) && !(tab.proxyType === 'pgsql' && tab.requesterDisconnected);
   const canCancel = !['released', 'cancelled', 'revision_requested'].includes(tab.status);
   const canRelease = tab.status === 'executed' && Boolean(tab.result);
 
@@ -283,7 +283,7 @@ function PgsqlPane({
   const filteredColumns = new Set(tab.filtered?.filteredColumns ?? []);
   const filterExemptColumns = new Set((tab.filterExemptColumns ?? []).map((column) => column.toLowerCase()));
   const connectionMissing = !tab.profile.trim() || !tab.database.trim() || !tab.sql.trim();
-  const currentProfileExists = profiles.some((profile) => profile.name === tab.profile);
+  const currentProfileExists = profiles.some((profile) => (profile.selector ?? profile.name) === tab.profile);
 
   return (
     <section className="query-pane">
@@ -293,14 +293,14 @@ function PgsqlPane({
           <select
             value={tab.profile}
             onChange={(event) => {
-              const profile = profiles.find((item) => item.name === event.target.value);
+              const profile = profiles.find((item) => (item.selector ?? item.name) === event.target.value);
               void api.updateConnection(tab.id, event.target.value, tab.database || profile?.maintenanceDb || 'postgres');
             }}
           >
-            <option value="">Select pgAdmin profile</option>
+            <option value="">Select profile or environment</option>
             {tab.profile && !currentProfileExists && <option value={tab.profile}>{tab.profile}</option>}
             {profiles.map((profile) => (
-              <option key={profile.id} value={profile.name}>
+              <option key={profile.selector ?? profile.id} value={profile.selector ?? profile.name}>
                 {profile.name}{profile.username ? ` · ${profile.username}` : ''}{profile.host ? ` @ ${profile.host}` : ''}
               </option>
             ))}
@@ -316,6 +316,8 @@ function PgsqlPane({
         </label>
         <ClassificationControl tab={tab} />
       </div>
+
+      {tab.passwordRequiredFor && <PasswordPrompt tab={tab} />}
 
       <CommonToolbar tab={tab} actions={actions} runDisabled={connectionMissing}>
         <button onClick={() => void api.updatePgsql(tab.id, formatSqlForEditor(tab.sql))}>
@@ -465,9 +467,39 @@ function GridResizer({ height, onResize, label }: { height: number; onResize(hei
   );
 }
 
+function PasswordPrompt({ tab }: { tab: PgsqlTab }) {
+  const [password, setPassword] = useState('');
+  const submit = () => {
+    if (!password) return;
+    void api.providePassword(tab.id, password);
+    setPassword('');
+  };
+  return (
+    <form
+      className="password-prompt"
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit();
+      }}
+    >
+      <label>
+        Password for {tab.passwordRequiredFor} (kept in memory for this session)
+        <input
+          type="password"
+          autoComplete="off"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+        />
+      </label>
+      <button type="submit" disabled={!password}>Use password</button>
+    </form>
+  );
+}
+
 function PgsqlStatus({ tab }: { tab: PgsqlTab; actionError?: string }) {
   return (
     <div className="status-line">
+      {tab.requesterDisconnected && <span className="error-text">Requester disconnected. Execution outcome is preserved here; do not resubmit a write without checking it.</span>}
       <span className={`status-pill ${tab.status}`}><i />{tab.status}</span>
       <span className="kind-label">PGSQL · declared {tab.classification} · detected {tab.detectedClassification}</span>
       {tab.result && <span>{tab.result.rowCount} rows · {tab.result.durationMs} ms</span>}
