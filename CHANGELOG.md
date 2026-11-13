@@ -5,6 +5,9 @@ while the project is pre-1.0, a minor version may include documented compatibili
 
 ## [Unreleased]
 
+### Added
+- A **…** button on result cells whose text is cut off or contains line breaks opens the full value, with JSON pretty-printed and a copy button. Filtered values stay masked. ([#7](https://github.com/amoserlu/proxydiablo/pull/7))
+
 ## [0.2.1] - 2026-11-13
 
 ### Fixed

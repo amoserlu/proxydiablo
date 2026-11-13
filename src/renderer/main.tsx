@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import CodeMirror from '@uiw/react-codemirror';
 import { MySQL, sql } from '@codemirror/lang-sql';
@@ -9,6 +9,7 @@ import {
   AlignLeft,
   Braces,
   Copy,
+  Ellipsis,
   Eye,
   EyeOff,
   FileText,
@@ -620,6 +621,26 @@ function ResultGrid({
 }) {
   const [selection, setSelection] = useState<CellSelection>();
   const [isSelecting, setIsSelecting] = useState(false);
+  const [viewing, setViewing] = useState<{ column: string; row: number; value: unknown }>();
+  const [overflowing, setOverflowing] = useState<Set<string>>(() => new Set());
+  const tableRef = useRef<HTMLTableElement>(null);
+
+  // Cells only get a "…" button when their text is cut off or hides line breaks.
+  useLayoutEffect(() => {
+    const table = tableRef.current;
+    if (!table) return;
+    const measure = () => {
+      const next = new Set<string>();
+      table.querySelectorAll<HTMLElement>('.cell-text').forEach((element) => {
+        if (element.dataset.multiline === 'true' || element.scrollWidth > element.clientWidth + 1) next.add(element.dataset.cell ?? '');
+      });
+      setOverflowing((current) => current.size === next.size && [...next].every((key) => current.has(key)) ? current : next);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [result]);
+
   if (!result) return <div className="empty-output">No output. Run a query to see results.</div>;
 
   const visibleRows = result.rows.slice(0, 1000);
@@ -631,82 +652,103 @@ function ResultGrid({
   }
 
   return (
-    <div
-      className={`grid-wrap ${selectedCount > 0 ? 'has-selection' : ''}`}
-      tabIndex={0}
-      onMouseUp={() => setIsSelecting(false)}
-      onKeyDown={(event) => {
-        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c' && selection) {
-          event.preventDefault();
-          void copySelection();
-        }
-        if (event.key === 'Escape') { setSelection(undefined); setIsSelecting(false); }
-      }}
-    >
-      {selectedCount > 0 && (
-        <div className="grid-selection-bar">
-          <span>{selectedCount} selected</span>
-          <button onClick={() => void copySelection()}><Copy size={14} /> Copy selected</button>
-          <button onClick={() => setSelection(undefined)}><X size={14} /> Clear</button>
-        </div>
-      )}
-      <table className="result-grid">
-        <thead>
-          <tr>
-            <th>#</th>
-            {result.columns.map((column) => {
-              const hidden = filteredColumns.has(column.name);
-              return (
-                <th key={column.name} className={columnClass(column.name, filteredColumns, filterExemptColumns)}>
-                  <div className="column-head">
-                    <span>{column.name}</span>
-                    <div className="column-actions">
-                      <button
-                        title={filteredColumns.has(column.name) ? 'Toggle global exact filter off' : 'Add global exact filter'}
-                        onClick={() => void api.quickFilter(column.name)}
-                      ><Filter size={13} /></button>
-                      <button
-                        className={hidden ? 'column-hidden-active' : ''}
-                        title={hidden ? 'Hidden from the output: show this column in this tab' : 'Sent in the output: hide this column in this tab'}
-                        onClick={() => void api.toggleTabColumnFilter(tabId, column.name)}
-                      >{hidden ? <EyeOff size={13} /> : <Eye size={13} />}</button>
-                    </div>
-                  </div>
-                </th>
-              );
-            })}
-          </tr>
-        </thead>
-        <tbody>
-          {visibleRows.map((row, rowIndex) => (
-            <tr key={rowIndex}>
-              <td className="row-num">{rowIndex + 1}</td>
-              {result.columns.map((column, columnIndex) => {
-                const selected = isCellSelected(selection, rowIndex, columnIndex);
+    <>
+      {viewing && <CellViewer {...viewing} onClose={() => setViewing(undefined)} />}
+      <div
+        className={`grid-wrap ${selectedCount > 0 ? 'has-selection' : ''}`}
+        tabIndex={0}
+        onMouseUp={() => setIsSelecting(false)}
+        onKeyDown={(event) => {
+          if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c' && selection) {
+            event.preventDefault();
+            void copySelection();
+          }
+          if (event.key === 'Escape') { setSelection(undefined); setIsSelecting(false); }
+        }}
+      >
+        {selectedCount > 0 && (
+          <div className="grid-selection-bar">
+            <span>{selectedCount} selected</span>
+            <button onClick={() => void copySelection()}><Copy size={14} /> Copy selected</button>
+            <button onClick={() => setSelection(undefined)}><X size={14} /> Clear</button>
+          </div>
+        )}
+        <table className="result-grid" ref={tableRef}>
+          <thead>
+            <tr>
+              <th>#</th>
+              {result.columns.map((column) => {
+                const hidden = filteredColumns.has(column.name);
                 return (
-                  <td
-                    key={column.name}
-                    className={[columnClass(column.name, filteredColumns, filterExemptColumns), selected ? 'selected-cell' : ''].filter(Boolean).join(' ')}
-                    onMouseDown={(event) => {
-                      if (event.button !== 0) return;
-                      event.preventDefault();
-                      setIsSelecting(true);
-                      setSelection({ anchor: { row: rowIndex, column: columnIndex }, focus: { row: rowIndex, column: columnIndex } });
-                    }}
-                    onMouseEnter={() => {
-                      if (!isSelecting) return;
-                      setSelection((current) => current
-                        ? { ...current, focus: { row: rowIndex, column: columnIndex } }
-                        : { anchor: { row: rowIndex, column: columnIndex }, focus: { row: rowIndex, column: columnIndex } });
-                    }}
-                  >{formatCell(row[column.name])}</td>
+                  <th key={column.name} className={columnClass(column.name, filteredColumns, filterExemptColumns)}>
+                    <div className="column-head">
+                      <span>{column.name}</span>
+                      <div className="column-actions">
+                        <button
+                          title={filteredColumns.has(column.name) ? 'Toggle global exact filter off' : 'Add global exact filter'}
+                          onClick={() => void api.quickFilter(column.name)}
+                        ><Filter size={13} /></button>
+                        <button
+                          className={hidden ? 'column-hidden-active' : ''}
+                          title={hidden ? 'Hidden from the output: show this column in this tab' : 'Sent in the output: hide this column in this tab'}
+                          onClick={() => void api.toggleTabColumnFilter(tabId, column.name)}
+                        >{hidden ? <EyeOff size={13} /> : <Eye size={13} />}</button>
+                      </div>
+                    </div>
+                  </th>
                 );
               })}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {visibleRows.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                <td className="row-num">{rowIndex + 1}</td>
+                {result.columns.map((column, columnIndex) => {
+                  const selected = isCellSelected(selection, rowIndex, columnIndex);
+                  const value = row[column.name];
+                  const cellKey = `${rowIndex}:${columnIndex}`;
+                  return (
+                    <td
+                      key={column.name}
+                      className={[columnClass(column.name, filteredColumns, filterExemptColumns), selected ? 'selected-cell' : ''].filter(Boolean).join(' ')}
+                      onMouseDown={(event) => {
+                        if (event.button !== 0) return;
+                        event.preventDefault();
+                        setIsSelecting(true);
+                        setSelection({ anchor: { row: rowIndex, column: columnIndex }, focus: { row: rowIndex, column: columnIndex } });
+                      }}
+                      onMouseEnter={() => {
+                        if (!isSelecting) return;
+                        setSelection((current) => current
+                          ? { ...current, focus: { row: rowIndex, column: columnIndex } }
+                          : { anchor: { row: rowIndex, column: columnIndex }, focus: { row: rowIndex, column: columnIndex } });
+                      }}
+                    >
+                      <div className="cell">
+                        <span
+                          className="cell-text"
+                          data-cell={cellKey}
+                          data-multiline={typeof value === 'string' && value.includes('\n') ? 'true' : undefined}
+                        >{formatCell(value)}</span>
+                        {overflowing.has(cellKey) && (
+                          <button
+                            className="cell-more"
+                            title="Show the full value"
+                            onMouseDown={(event) => event.stopPropagation()}
+                            onClick={() => setViewing({ column: column.name, row: rowIndex, value })}
+                          ><Ellipsis size={14} /></button>
+                        )}
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
@@ -714,6 +756,47 @@ function ResultGrid({
 function columnClass(name: string, filteredColumns: Set<string>, filterExemptColumns: Set<string>): string {
   if (filteredColumns.has(name)) return 'filtered-column';
   return filterExemptColumns.has(name.toLowerCase()) ? 'exempt-column' : '';
+}
+
+function CellViewer({ column, row, value, onClose }: { column: string; row: number; value: unknown; onClose(): void }) {
+  const text = cellDetailText(value);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => dialogRef.current?.focus(), []);
+  useEffect(() => {
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', close);
+    return () => window.removeEventListener('keydown', close);
+  }, [onClose]);
+  return (
+    <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="cell-viewer" role="dialog" aria-modal="true" aria-labelledby="cell-viewer-title" tabIndex={-1} ref={dialogRef}>
+        <header>
+          <h2 id="cell-viewer-title">{column} <small>row {row + 1} · {text.length} characters</small></h2>
+          <div>
+            <button onClick={() => void copyText(text)}><Copy size={15} /> Copy</button>
+            <button onClick={onClose}><X size={15} /> Close</button>
+          </div>
+        </header>
+        <pre>{text || '(empty)'}</pre>
+      </div>
+    </div>
+  );
+}
+
+/** Full text for the cell viewer; JSON values and JSON-looking strings are pretty-printed. */
+function cellDetailText(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'object') return JSON.stringify(value, null, 2);
+  const text = String(value);
+  if (/^\s*[[{]/.test(text)) {
+    try {
+      return JSON.stringify(JSON.parse(text), null, 2);
+    } catch {
+      return text;
+    }
+  }
+  return text;
 }
 
 interface CellCoord { row: number; column: number }
