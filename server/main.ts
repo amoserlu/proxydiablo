@@ -137,13 +137,17 @@ server.on('error', (error: NodeJS.ErrnoException) => {
 });
 
 let shuttingDown = false;
+function stopServer(): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  server.close(() => process.exit(0));
+  server.closeAllConnections();
+  setTimeout(() => process.exit(0), 2000).unref();
+}
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
     if (shuttingDown) return process.exit(1);
-    shuttingDown = true;
-    server.close(() => process.exit(0));
-    server.closeAllConnections();
-    setTimeout(() => process.exit(0), 2000).unref();
+    stopServer();
   });
 }
 
@@ -184,6 +188,13 @@ async function handleUiRequest(request: http.IncomingMessage, response: http.Ser
   requireMutationOrigin(request);
   const body = request.method === 'GET' || request.method === 'DELETE' ? {} : await readBody(request);
 
+  if (url.pathname === '/api/shutdown' && request.method === 'POST') {
+    const { commands } = service.cancelAllOpen();
+    sendJson(response, 200, { ok: true });
+    // Command CLIs poll for their cancellation every 300 ms; give them time to read it.
+    setTimeout(stopServer, commands ? 1000 : 200);
+    return;
+  }
   if (url.pathname === '/api/tabs/pgsql' && request.method === 'POST') {
     service.createPgsqlTab();
     sendJson(response, 200, { ok: true });

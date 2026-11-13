@@ -81,8 +81,12 @@ button:hover:not(:disabled) { background: #221c1c; }
 }
 .primary-action:hover:not(:disabled) { background: #fff0f1; }
 .notification-toggles { display: inline-flex; gap: 6px; }
-.notification-toggles button { width: 38px; padding: 0; border-color: rgba(255, 255, 255, .55); color: #fff; }
-.notification-toggles button:hover:not(:disabled) { background: rgba(255, 255, 255, .14); }
+.notification-toggles button, .header-icon { width: 38px; padding: 0; border-color: rgba(255, 255, 255, .55); color: #fff; }
+.notification-toggles button:hover:not(:disabled), .header-icon:hover:not(:disabled) { background: rgba(255, 255, 255, .14); }
+.stopped-state { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; color: #d8caca; text-align: center; }
+.stopped-state h1 { margin: 0; color: #f2eded; font-size: 22px; }
+.stopped-state p { max-width: 460px; margin: 0; line-height: 1.5; }
+.stopped-state code { color: #ff8a95; white-space: nowrap; }
 .notification-toggles button.on { border-color: #fff; background: #fff; color: #e01a2b; }
 .notification-toggles button.on:hover:not(:disabled) { background: #fff0f1; }
 

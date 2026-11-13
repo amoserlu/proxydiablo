@@ -254,6 +254,27 @@ describe('ProxyService send error', () => {
   });
 });
 
+describe('ProxyService stop', () => {
+  it('cancels every open request so waiting agents are told before the server stops', async () => {
+    const service = new ProxyService();
+    const { tabId, response } = service.startPgsqlSubmission({
+      profile: 'p',
+      database: 'd',
+      sql: 'select 1;',
+      description: 'Stop test.',
+      classification: 'read',
+    });
+    const command = service.createCommandTab({ command: 'true', cwd: '/tmp', description: 'Stop test.', classification: 'read' });
+    const finished = service.createCommandTab({ command: 'true', cwd: '/tmp', description: 'Already cancelled.', classification: 'read' });
+    service.cancelTab(finished.id);
+
+    expect(service.cancelAllOpen()).toEqual({ cancelled: 2, commands: 1 });
+    await expect(response).resolves.toEqual({ status: 'cancelled', tabId, proxyType: 'pgsql' });
+    expect(service.commandInstruction(command.id, 0)).toMatchObject({ type: 'cancelled' });
+    expect(service.commandInstruction(finished.id, 1)).toBeUndefined();
+  });
+});
+
 describe('ProxyService abandoned submissions', () => {
   it('cancels a waiting tab when its requester disconnects', async () => {
     const service = new ProxyService();

@@ -14,6 +14,7 @@ Provide one local, supervised web interface through which Codex can propose Post
 - Cancel with explanation stops the request and returns the explanation as `revision_requested`.
 - Send output always asks the human to confirm there is no sensitive data.
 - Header toggles, off by default and remembered per browser, announce each new agent request with a chime and/or a browser notification; requests already open when the page loads are not announced.
+- A Stop server button, after a confirmation that counts the open agent requests, cancels every open request (waiting agents receive `cancelled`) and then stops the server; the page shows that it is stopped.
 - Send error message, enabled only after a request fails, returns the error as an `error` response after the same sensitive-data confirmation; error text is never filtered.
 
 ## Output isolation

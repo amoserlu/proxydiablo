@@ -345,6 +345,19 @@ export class ProxyService {
     else this.finishPgsql(tabId, { status: 'error', tabId, proxyType: 'pgsql', error, sql: tab.sql });
   }
 
+  /** Cancels every open request so waiting agents hear about it before the server stops. */
+  cancelAllOpen(): { cancelled: number; commands: number } {
+    let cancelled = 0;
+    let commands = 0;
+    for (const tab of [...this.tabs]) {
+      if (['released', 'cancelled', 'revision_requested', 'error_sent'].includes(tab.status)) continue;
+      this.cancelTab(tab.id);
+      cancelled += 1;
+      if (tab.proxyType === 'command') commands += 1;
+    }
+    return { cancelled, commands };
+  }
+
   closeTab(tabId: string): void {
     const tab = this.tabs.find((item) => item.id === tabId);
     if (!tab) return;

@@ -19,6 +19,7 @@ import {
   MessageSquareWarning,
   Play,
   Plus,
+  Power,
   Send,
   Square,
   Trash2,
@@ -45,11 +46,29 @@ function App() {
   const [showRaw, setShowRaw] = useState(false);
   const [attentionTabId, setAttentionTabId] = useState<string>();
   const [formattedTabs, setFormattedTabs] = useState<Set<string>>(() => new Set());
+  const [confirmStop, setConfirmStop] = useState(false);
+  const [stopped, setStopped] = useState(false);
+  const [stopError, setStopError] = useState<string>();
+  const stopEvents = useRef<() => void>(undefined);
 
   useEffect(() => {
     void api.getState().then(setState);
-    return api.onState(setState);
+    const unsubscribe = api.onState(setState);
+    stopEvents.current = unsubscribe;
+    return unsubscribe;
   }, []);
+
+  async function stopServer() {
+    setStopError(undefined);
+    try {
+      await api.shutdown();
+      stopEvents.current?.();
+      setConfirmStop(false);
+      setStopped(true);
+    } catch (error) {
+      setStopError(error instanceof Error ? error.message : String(error));
+    }
+  }
 
   const active = useMemo(
     () => state.tabs.find((tab) => tab.id === state.activeTabId) ?? state.tabs[0],
@@ -73,6 +92,19 @@ function App() {
     }
   }, [formattedTabs, state.tabs]);
 
+  if (stopped) {
+    return (
+      <div className="stopped-state">
+        <Power size={28} />
+        <h1>Proxy Diablo is stopped</h1>
+        <p>It starts again with the next agent request or <code>proxydiablo ui</code>. Reload this page once it is running.</p>
+      </div>
+    );
+  }
+
+  const waitingRequests = state.tabs.filter((tab) => tab.source === 'codex'
+    && !['released', 'cancelled', 'revision_requested', 'error_sent'].includes(tab.status)).length;
+
   return (
     <div className={`app-shell ${attentionTabId ? 'attention' : ''}`}>
       <header className="app-header">
@@ -81,7 +113,29 @@ function App() {
           <Plus size={16} /> New SQL tab
         </button>
         <NotificationToggles state={state} />
+        <button className="header-icon" title="Stop the Proxy Diablo server" onClick={() => setConfirmStop(true)}>
+          <Power size={17} />
+        </button>
       </header>
+      {confirmStop && (
+        <div className="modal-backdrop">
+          <div className="warning-modal" role="alertdialog" aria-modal="true" aria-labelledby="stop-title">
+            <div className="warning-icon"><Power size={22} /></div>
+            <div>
+              <small>Stop server</small>
+              <h2 id="stop-title">Stop Proxy Diablo?</h2>
+              <p>{waitingRequests
+                ? `${waitingRequests} agent request${waitingRequests === 1 ? ' is' : 's are'} still open and will be cancelled; the agents are told so. `
+                : ''}It starts again with the next agent request or proxydiablo ui.</p>
+              {stopError && <p className="error-text">{stopError}</p>}
+            </div>
+            <div className="warning-actions">
+              <button onClick={() => setConfirmStop(false)}>Keep running</button>
+              <button className="danger-confirm" onClick={() => void stopServer()}>Stop server</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <main className="workspace">
         <div className="tab-strip">

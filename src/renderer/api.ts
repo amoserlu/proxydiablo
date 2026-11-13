@@ -35,6 +35,7 @@ function tabRoute(tabId: string, action?: string): string {
 export const api = {
   getState: () => request<AppStateSnapshot>('GET', '/api/state'),
   newPgsqlTab: () => request('POST', '/api/tabs/pgsql', {}),
+  shutdown: () => request('POST', '/api/shutdown', {}),
   updatePgsql: (tabId: string, sql: string) => request('PATCH', tabRoute(tabId, 'pgsql'), { sql }),
   updateConnection: (tabId: string, profile: string, database: string) =>
     request('PATCH', tabRoute(tabId, 'connection'), { profile, database }),
