@@ -332,7 +332,8 @@ async function serveClient(response: http.ServerResponse, pathname: string): Pro
   setSessionCookie(response);
   response.writeHead(200, {
     'content-type': contentType(filePath),
-    'cache-control': filePath.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable',
+    // index.html and the notification worker keep stable names, so they must be revalidated.
+    'cache-control': /(index\.html|notification-sw\.js)$/.test(filePath) ? 'no-cache' : 'public, max-age=31536000, immutable',
   });
   fs.createReadStream(filePath).pipe(response);
 }
