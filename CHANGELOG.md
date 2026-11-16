@@ -5,6 +5,14 @@ while the project is pre-1.0, a minor version may include documented compatibili
 
 ## [Unreleased]
 
+### Fixed
+- Clicking a browser notification brings Proxy Diablo to the front and opens that request, or opens the UI if it was closed. Notifications now go through a small service worker, because a page's own click handler was often never called (for example on Windows). ([#7](https://github.com/amoserlu/proxydiablo/pull/7))
+
+### Added
+- A **…** button on result cells whose text is cut off or contains line breaks opens the full value, with JSON pretty-printed and a copy button. Filtered values stay masked. ([#7](https://github.com/amoserlu/proxydiablo/pull/7))
+- A **Transaction** switch on SQL requests runs a detected read without a read-only transaction (for example a function call that writes), or ambiguous SQL with one. Turning read-only off needs a two-step confirmation and makes the run need the two write confirmations. It can only change before the request runs. ([#7](https://github.com/amoserlu/proxydiablo/pull/7))
+- A **Stop server** button in the header cancels every open request after a confirmation, so waiting agents receive `cancelled`, then stops the server. The next agent request or `proxydiablo ui` starts it again. ([#7](https://github.com/amoserlu/proxydiablo/pull/7))
+
 ## [0.2.1] - 2026-11-13
 
 ### Fixed

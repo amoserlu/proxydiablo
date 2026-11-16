@@ -6,6 +6,7 @@ import {
   DoubleConfirmationRequiredError,
   ProxyService,
   SensitiveOutputConfirmationRequiredError,
+  requiresDoubleConfirmation,
 } from '../server/service';
 
 describe('ProxyService', () => {
@@ -169,6 +170,52 @@ describe('ProxyService column filters', () => {
   });
 });
 
+describe('ProxyService read-only switch', () => {
+  const sqlTab = (service: ProxyService, sql: string) => service.createPgsqlTab({
+    profile: 'production',
+    database: 'app',
+    sql,
+    description: 'Read-only switch test.',
+    classification: 'read',
+  });
+  const current = (service: ProxyService) => service.snapshot().tabs[0] as Extract<ReturnType<ProxyService['snapshot']>['tabs'][number], { proxyType: 'pgsql' }>;
+
+  it('needs a double check to let detected reads write, and then two run confirmations', async () => {
+    const service = new ProxyService();
+    const tab = sqlTab(service, 'select refresh_totals();');
+    expect(requiresDoubleConfirmation(current(service))).toBe(false);
+
+    expect(() => service.setReadOnly(tab.id, false, false)).toThrow(DoubleConfirmationRequiredError);
+    expect(current(service).readOnlyOverride).toBeUndefined();
+
+    service.setReadOnly(tab.id, false, true);
+    expect(current(service).readOnlyOverride).toBe(false);
+    expect(requiresDoubleConfirmation(current(service))).toBe(true);
+    await expect(service.approveTab(tab.id, false)).rejects.toBeInstanceOf(DoubleConfirmationRequiredError);
+
+    service.setReadOnly(tab.id, true, false);
+    expect(current(service).readOnlyOverride).toBeUndefined();
+  });
+
+  it('lets ambiguous SQL run read-only without relaxing its confirmations', () => {
+    const service = new ProxyService();
+    const tab = sqlTab(service, 'select 1; select 2;');
+    service.setReadOnly(tab.id, true, false);
+    expect(current(service).readOnlyOverride).toBe(true);
+    expect(requiresDoubleConfirmation(current(service))).toBe(true);
+  });
+
+  it('forgets the choice when the SQL changes', () => {
+    const service = new ProxyService();
+    const tab = sqlTab(service, 'select 1;');
+    service.setReadOnly(tab.id, false, true);
+    service.updatePgsql(tab.id, 'select 1;');
+    expect(current(service).readOnlyOverride).toBe(false);
+    service.updatePgsql(tab.id, 'select 2;');
+    expect(current(service).readOnlyOverride).toBeUndefined();
+  });
+});
+
 describe('ProxyService send error', () => {
   const failTab = (service: ProxyService, tabId: string, error: string) =>
     (service as unknown as { updateTab(id: string, patch: object): void }).updateTab(tabId, { status: 'error', error });
@@ -204,6 +251,27 @@ describe('ProxyService send error', () => {
     failTab(service, tab.id, 'Command and working directory are required.');
     service.sendError(tab.id, true);
     expect(service.commandInstruction(tab.id, 0)).toMatchObject({ type: 'error', error: 'Command and working directory are required.' });
+  });
+});
+
+describe('ProxyService stop', () => {
+  it('cancels every open request so waiting agents are told before the server stops', async () => {
+    const service = new ProxyService();
+    const { tabId, response } = service.startPgsqlSubmission({
+      profile: 'p',
+      database: 'd',
+      sql: 'select 1;',
+      description: 'Stop test.',
+      classification: 'read',
+    });
+    const command = service.createCommandTab({ command: 'true', cwd: '/tmp', description: 'Stop test.', classification: 'read' });
+    const finished = service.createCommandTab({ command: 'true', cwd: '/tmp', description: 'Already cancelled.', classification: 'read' });
+    service.cancelTab(finished.id);
+
+    expect(service.cancelAllOpen()).toEqual({ cancelled: 2, commands: 1 });
+    await expect(response).resolves.toEqual({ status: 'cancelled', tabId, proxyType: 'pgsql' });
+    expect(service.commandInstruction(command.id, 0)).toMatchObject({ type: 'cancelled' });
+    expect(service.commandInstruction(finished.id, 1)).toBeUndefined();
   });
 });
 

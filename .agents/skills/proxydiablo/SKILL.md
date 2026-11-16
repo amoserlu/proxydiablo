@@ -25,7 +25,7 @@ Before submission:
 3. Use `write` for any state change. If behavior is difficult to determine or conditional, use `write`.
 4. Provide a concise description of what will run, what it reads or changes, and the intended output.
 
-A read requires one human Run action. A declared write requires two. SQL is also parsed independently with the profile's dialect; detected writes and ambiguous SQL require two confirmations even if declared `read`.
+A read requires one human Run action. A declared write requires two. SQL is also parsed independently with the profile's dialect; detected writes and ambiguous SQL require two confirmations even if declared `read`. Detected reads run in a read-only transaction: if a statement only looks like a read but changes data (for example a function call), declare `write` and say so in the description, because the reviewer has to turn read-only off before running it.
 
 ## Commands
 

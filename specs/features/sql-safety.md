@@ -11,6 +11,7 @@ Make reads easy and writes intentionally supervised.
 - The app independently classifies SQL before execution.
 - Initial safe session-setting statements such as `SET statement_timeout = '5s';` may precede one read query and still classify as read-only.
 - Read-only SQL executes in a read-only transaction where possible.
+- The reviewer can switch a SQL tab between read-only and writable. Turning read-only off needs a two-step confirmation and makes the run require the two write confirmations; turning it on needs none and does not relax the confirmations ambiguous SQL needs. Changing the SQL, or a change in its detected classification, resets the switch to automatic.
 - Structure inspection always uses read-only catalog queries.
 - SQL declared as write, detected as write, or detected as ambiguous requires two user confirmations before it can run.
 - Closing a warning returns to the request without executing it; explicit Cancel ends the request.

@@ -137,13 +137,17 @@ server.on('error', (error: NodeJS.ErrnoException) => {
 });
 
 let shuttingDown = false;
+function stopServer(): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  server.close(() => process.exit(0));
+  server.closeAllConnections();
+  setTimeout(() => process.exit(0), 2000).unref();
+}
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
     if (shuttingDown) return process.exit(1);
-    shuttingDown = true;
-    server.close(() => process.exit(0));
-    server.closeAllConnections();
-    setTimeout(() => process.exit(0), 2000).unref();
+    stopServer();
   });
 }
 
@@ -184,6 +188,13 @@ async function handleUiRequest(request: http.IncomingMessage, response: http.Ser
   requireMutationOrigin(request);
   const body = request.method === 'GET' || request.method === 'DELETE' ? {} : await readBody(request);
 
+  if (url.pathname === '/api/shutdown' && request.method === 'POST') {
+    const { commands } = service.cancelAllOpen();
+    sendJson(response, 200, { ok: true });
+    // Command CLIs poll for their cancellation every 300 ms; give them time to read it.
+    setTimeout(stopServer, commands ? 1000 : 200);
+    return;
+  }
   if (url.pathname === '/api/tabs/pgsql' && request.method === 'POST') {
     service.createPgsqlTab();
     sendJson(response, 200, { ok: true });
@@ -203,7 +214,7 @@ async function handleUiRequest(request: http.IncomingMessage, response: http.Ser
   }
 
   const tabMatch = url.pathname.match(
-    /^\/api\/tabs\/([^/]+)(?:\/(active|pgsql|connection|command|classification|run|cancel|revise|release|send-error|column-filter|password))?$/,
+    /^\/api\/tabs\/([^/]+)(?:\/(active|pgsql|connection|command|classification|run|cancel|revise|release|send-error|read-only|column-filter|password))?$/,
   );
   if (!tabMatch) throw new HttpError(404, 'not_found');
 
@@ -226,6 +237,8 @@ async function handleUiRequest(request: http.IncomingMessage, response: http.Ser
     service.releaseTab(tabId, body.sensitiveDataConfirmed === true);
   } else if (action === 'password' && request.method === 'POST') {
     service.provideEnvironmentPassword(tabId, String(body.password ?? ''));
+  } else if (action === 'read-only' && request.method === 'POST') {
+    service.setReadOnly(tabId, body.readOnly === true, body.confirmed === true);
   } else if (action === 'send-error' && request.method === 'POST') {
     service.sendError(tabId, body.sensitiveDataConfirmed === true);
   } else if (action === 'column-filter' && request.method === 'POST') {
@@ -319,7 +332,8 @@ async function serveClient(response: http.ServerResponse, pathname: string): Pro
   setSessionCookie(response);
   response.writeHead(200, {
     'content-type': contentType(filePath),
-    'cache-control': filePath.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable',
+    // index.html and the notification worker keep stable names, so they must be revalidated.
+    'cache-control': /(index\.html|notification-sw\.js)$/.test(filePath) ? 'no-cache' : 'public, max-age=31536000, immutable',
   });
   fs.createReadStream(filePath).pipe(response);
 }

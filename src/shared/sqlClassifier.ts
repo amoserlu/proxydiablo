@@ -93,6 +93,11 @@ function classifyStatements(stripped: string, engine: DatabaseEngine): SqlClassi
   return 'ambiguous';
 }
 
+/** Whether SQL runs in a read-only transaction: the reviewer's choice if any, else only detected reads. */
+export function runsReadOnly(tab: { detectedClassification: SqlClassification; readOnlyOverride?: boolean }): boolean {
+  return tab.readOnlyOverride ?? tab.detectedClassification === 'read';
+}
+
 export function isWriteLike(classification: SqlClassification): boolean {
   return classification !== 'read';
 }

@@ -53,14 +53,34 @@ function playChime(): void {
   });
 }
 
-function showBrowserNotification(tab: ProxyTab | undefined): void {
+let notificationWorker: Promise<ServiceWorkerRegistration | undefined> | undefined;
+
+/** Registers the worker that shows notifications and handles their clicks; undefined when unavailable. */
+function registerNotificationWorker(): Promise<ServiceWorkerRegistration | undefined> {
+  if (!('serviceWorker' in navigator)) return Promise.resolve(undefined);
+  notificationWorker ??= navigator.serviceWorker
+    .register('/notification-sw.js')
+    .then(() => navigator.serviceWorker.ready)
+    .catch(() => undefined);
+  return notificationWorker;
+}
+
+async function showBrowserNotification(tab: ProxyTab | undefined): Promise<void> {
   if (browserPermission() !== 'granted') return;
   const kind = tab?.proxyType === 'command' ? 'Command' : 'SQL';
   const summary = tab?.description || tab?.title || 'A request is waiting for review.';
-  const notification = new Notification(`Proxy Diablo: ${kind} request waiting`, {
+  const title = `Proxy Diablo: ${kind} request waiting`;
+  const options: NotificationOptions = {
     body: summary.length > 140 ? `${summary.slice(0, 137)}...` : summary,
     tag: tab ? `proxydiablo-${tab.id}` : 'proxydiablo',
-  });
+    data: { tabId: tab?.id },
+  };
+  const worker = await registerNotificationWorker();
+  if (worker) {
+    await worker.showNotification(title, options);
+    return;
+  }
+  const notification = new Notification(title, options);
   notification.onclick = () => {
     window.focus();
     if (tab) void api.setActiveTab(tab.id);
@@ -75,6 +95,23 @@ export function NotificationToggles({ state }: { state: AppStateSnapshot }) {
   const [permission, setPermission] = useState(browserPermission);
   const initialState = useRef(state);
   const lastSeq = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (browser) void registerNotificationWorker();
+  }, [browser]);
+
+  useEffect(() => {
+    // The worker asks this page to open the request whose notification was clicked.
+    if (!('serviceWorker' in navigator)) return;
+    const openTab = (event: MessageEvent) => {
+      if (event.data?.type === 'proxydiablo:open-tab' && typeof event.data.tabId === 'string') {
+        void api.setActiveTab(event.data.tabId);
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', openTab);
+    navigator.serviceWorker.startMessages();
+    return () => navigator.serviceWorker.removeEventListener('message', openTab);
+  }, []);
 
   useEffect(() => {
     if (!audio) return;
@@ -99,7 +136,7 @@ export function NotificationToggles({ state }: { state: AppStateSnapshot }) {
     lastSeq.current = state.attentionSeq;
     const tab = state.tabs.find((item) => item.id === state.attentionTabId);
     if (audio) playChime();
-    if (browser) showBrowserNotification(tab);
+    if (browser) void showBrowserNotification(tab);
   }, [state, audio, browser]);
 
   function toggleAudio() {

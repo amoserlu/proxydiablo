@@ -35,6 +35,7 @@ function tabRoute(tabId: string, action?: string): string {
 export const api = {
   getState: () => request<AppStateSnapshot>('GET', '/api/state'),
   newPgsqlTab: () => request('POST', '/api/tabs/pgsql', {}),
+  shutdown: () => request('POST', '/api/shutdown', {}),
   updatePgsql: (tabId: string, sql: string) => request('PATCH', tabRoute(tabId, 'pgsql'), { sql }),
   updateConnection: (tabId: string, profile: string, database: string) =>
     request('PATCH', tabRoute(tabId, 'connection'), { profile, database }),
@@ -49,6 +50,8 @@ export const api = {
     request('POST', tabRoute(tabId, 'revise'), { explanation }),
   release: (tabId: string) =>
     request('POST', tabRoute(tabId, 'release'), { sensitiveDataConfirmed: true }),
+  setReadOnly: (tabId: string, readOnly: boolean, confirmed: boolean) =>
+    request('POST', tabRoute(tabId, 'read-only'), { readOnly, confirmed }),
   sendError: (tabId: string) =>
     request('POST', tabRoute(tabId, 'send-error'), { sensitiveDataConfirmed: true }),
   providePassword: (tabId: string, password: string) =>

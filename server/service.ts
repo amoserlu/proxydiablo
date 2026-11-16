@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { canEditRequest, canRunRequest } from '../src/shared/requestLifecycle.js';
 import { applyFilters, toggleExactFilter, toggleTabColumnFilter } from '../src/shared/filters.js';
-import { classifySql } from '../src/shared/sqlClassifier.js';
+import { classifySql, runsReadOnly } from '../src/shared/sqlClassifier.js';
 import type {
   ActionClassification,
   AppStateSnapshot,
@@ -174,6 +174,8 @@ export class ProxyService {
     this.updateTab(tabId, {
       sql,
       detectedClassification: classifySql(sql, tab.engine),
+      // A read-only choice was made for the old SQL; new SQL starts from detection again.
+      readOnlyOverride: sql === tab.sql ? tab.readOnlyOverride : undefined,
       status: tab.status === 'waiting_user' ? 'waiting_user' : 'draft',
       error: undefined,
       result: undefined,
@@ -185,11 +187,13 @@ export class ProxyService {
     const tab = this.getTab(tabId, 'pgsql');
     if (!tab || !canEditRequest(tab)) return;
     const engine = profileEngine(profile);
+    const detectedClassification = classifySql(tab.sql, engine);
     this.updateTab(tabId, {
       profile,
       database,
       engine,
-      detectedClassification: classifySql(tab.sql, engine),
+      detectedClassification,
+      readOnlyOverride: detectedClassification === tab.detectedClassification ? tab.readOnlyOverride : undefined,
       title: database || profile || 'New SQL request',
       passwordRequiredFor: undefined,
       error: undefined,
@@ -242,7 +246,7 @@ export class ProxyService {
     this.updateTab(tabId, { status: 'running', error: undefined });
     try {
       const connection = await resolveConnection(tab.profile, tab.database);
-      const result = await runQuery(connection, tab.sql, tab.detectedClassification === 'read');
+      const result = await runQuery(connection, tab.sql, runsReadOnly(tab));
       const current = this.getTab(tabId, 'pgsql');
       if (current?.status === 'running') this.updateTab(tabId, { status: 'executed', result, error: undefined });
     } catch (error) {
@@ -269,6 +273,16 @@ export class ProxyService {
     if (!tab?.passwordRequiredFor || !canEditRequest(tab)) throw new Error('This tab is not waiting for a password.');
     setSessionPassword(tab.passwordRequiredFor, password);
     this.updateTab(tabId, { passwordRequiredFor: undefined, error: undefined });
+  }
+
+  /** Turning read-only off lets the SQL write, so it needs the reviewer's double check; turning it on does not. */
+  setReadOnly(tabId: string, readOnly: boolean, confirmed: boolean): void {
+    const tab = this.getTab(tabId, 'pgsql');
+    if (!tab || !canEditRequest(tab)) return;
+    if (!readOnly && !confirmed) throw new DoubleConfirmationRequiredError();
+    this.updateTab(tabId, {
+      readOnlyOverride: readOnly === (tab.detectedClassification === 'read') ? undefined : readOnly,
+    });
   }
 
   storeCommandResult(tabId: string, result: CommandResult): void {
@@ -331,6 +345,19 @@ export class ProxyService {
     else this.finishPgsql(tabId, { status: 'error', tabId, proxyType: 'pgsql', error, sql: tab.sql });
   }
 
+  /** Cancels every open request so waiting agents hear about it before the server stops. */
+  cancelAllOpen(): { cancelled: number; commands: number } {
+    let cancelled = 0;
+    let commands = 0;
+    for (const tab of [...this.tabs]) {
+      if (['released', 'cancelled', 'revision_requested', 'error_sent'].includes(tab.status)) continue;
+      this.cancelTab(tab.id);
+      cancelled += 1;
+      if (tab.proxyType === 'command') commands += 1;
+    }
+    return { cancelled, commands };
+  }
+
   closeTab(tabId: string): void {
     const tab = this.tabs.find((item) => item.id === tabId);
     if (!tab) return;
@@ -376,7 +403,7 @@ export class ProxyService {
     const engine = profileEngine(tab.profile);
     const detectedClassification = classifySql(tab.sql, engine);
     if (engine !== (tab.engine ?? 'postgresql') || detectedClassification !== tab.detectedClassification) {
-      this.updateTab(tabId, { engine, detectedClassification });
+      this.updateTab(tabId, { engine, detectedClassification, readOnlyOverride: undefined });
     }
   }
 
@@ -445,7 +472,8 @@ export class ProxyService {
 }
 
 export function requiresDoubleConfirmation(tab: ProxyTab): boolean {
-  return tab.classification === 'write' || (tab.proxyType === 'pgsql' && tab.detectedClassification !== 'read');
+  return tab.classification === 'write'
+    || (tab.proxyType === 'pgsql' && (tab.detectedClassification !== 'read' || !runsReadOnly(tab)));
 }
 
 function normalizeCommandResult(result: CommandResult): CommandResult {
